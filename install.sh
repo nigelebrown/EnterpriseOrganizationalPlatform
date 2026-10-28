@@ -114,7 +114,7 @@ exec 9>"$LOCK_FILE"
 flock -n 9 || die 'Another installation is running'
 
 ensure_docker(){
-  if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
+  if command -v docker >/dev/null && docker compose version >/dev/null 2>&1 && docker buildx version >/dev/null 2>&1; then
     if ! docker info >/dev/null 2>&1; then
       log 'Docker is installed but stopped; starting existing Docker daemon'
       systemctl enable --now docker || die 'Unable to start Docker Engine'
