@@ -1,7 +1,7 @@
 [project]
 name = "jcf-enterprise-organizational-platform"
 version = "0.1.0"
-description = "JCF modular organizational registry and shared enterprise APIs"
+description = "JCF-EMP modular enterprise management platform with standardized data and governed APIs"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.115,<1",

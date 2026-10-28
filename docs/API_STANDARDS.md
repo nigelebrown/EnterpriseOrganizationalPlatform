@@ -1,4 +1,4 @@
-# JCF Enterprise Platform — API Standards
+# JCF Enterprise Management Platform (JCF-EMP) — API Standards
 
 All public service APIs **shall be documented using OpenAPI**. No specific OpenAPI release is
 mandated by the architecture; implementers shall select a compatible supported release and keep

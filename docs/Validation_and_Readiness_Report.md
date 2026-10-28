@@ -1,4 +1,4 @@
-# JCF Enterprise Organizational Platform — implementation validation
+# JCF Enterprise Management Platform (JCF-EMP) — implementation validation
 
 **Reviewed:** 28 October 2026  
 **Source:** GitHub draft PR #1 (`feat/initial-modular-platform`)

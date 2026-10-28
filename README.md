@@ -1,4 +1,6 @@
-# JCF Enterprise Organizational Platform
+# JCF Enterprise Management Platform (JCF-EMP)
+
+**One Platform. Standardized Data. Integrated Services.**
 
 **Implementation baseline – not yet approved for production.**
 

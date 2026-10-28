@@ -1,4 +1,4 @@
-# JCF Enterprise Organizational Platform — one-command installation and upgrade
+# JCF Enterprise Management Platform (JCF-EMP) — one-command installation and upgrade
 
 **Scope.** The Linux installer installs Docker and Compose when absent, builds the application image,
 creates *an isolated development-only SQL Server 2019 Express instance* when selected, provisions

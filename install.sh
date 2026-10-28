@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# JCF Enterprise Organizational Platform: fresh Linux VM install AND safe repeat upgrade.
+# JCF Enterprise Management Platform (JCF-EMP): fresh Linux VM install AND safe repeat upgrade.
 # Usage: sudo bash install.sh [--mode local-express|external] [--runtime-file FILE --migration-file FILE]
 set -Eeuo pipefail
 umask 077
@@ -22,7 +22,7 @@ OLD_TAG=''
 
 usage() {
   cat <<'HELP'
-JCF Enterprise Organizational Platform — repeatable Linux installer.
+JCF Enterprise Management Platform (JCF-EMP) — repeatable Linux installer.
 
 Fresh CentOS Stream 9 or Linux TEST VM (SQL Server 2019 Express container):
   sudo bash install.sh --mode local-express

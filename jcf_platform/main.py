@@ -101,8 +101,8 @@ def create_app(database_url=None, *, engine=None):
     async def lifespan(app):
         yield
         eng.dispose()
-    app=FastAPI(title='JCF Enterprise Organizational Platform',version='1.0.0',
-                description='Authoritative organizational registry, reporting, facilities and governed shared APIs',
+    app=FastAPI(title='JCF Enterprise Management Platform (JCF-EMP)',version='1.0.0',
+                description='JCF-EMP: standardized organizational data, integrated management modules and governed enterprise APIs',
                 docs_url='/api/docs' if cfg['env']!='production' else None,
                 openapi_url='/api/openapi.json',lifespan=lifespan)
     app.state.settings=cfg
