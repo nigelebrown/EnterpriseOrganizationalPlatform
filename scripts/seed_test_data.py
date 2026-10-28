@@ -197,7 +197,7 @@ def seed_fixture(db: Session) -> dict:
         counts["personnel"] += int(created)
         _, created = ensure(
             db, m.Posting,
-            (m.Posting.personnel_id == person_id, m.Posting.is_primary.is_(True)),
+            (m.Posting.personnel_id == person_id, m.Posting.is_primary == True),
             "POSTING_CREATE",
             {"personnelId": str(person_id), "locationId": str(loc_ids[location]),
              "sectionId": str(section_ids[(location, unit)]),
