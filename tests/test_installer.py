@@ -155,3 +155,14 @@ def test_centos_stream_9_install_mode_present_and_safe():
         assert snippet in script
     for dangerous in ('setenforce 0', 'systemctl stop firewalld', 'dnf remove'):
         assert dangerous not in script
+
+
+def test_debian_slim_dockerfile_uses_https_before_apt():
+    dockerfile = (ROOT / 'Dockerfile').read_text()
+    assert '/etc/apt/sources.list.d/debian.sources' in dockerfile
+    assert 'https://deb.debian.org/debian/dists/bookworm/InRelease' in dockerfile
+    assert "s|http://deb.debian.org/|https://deb.debian.org/|g" in dockerfile
+    assert 'apt-get -o Acquire::Retries=3 update' in dockerfile
+    assert 'https://packages.microsoft.com/debian/12/prod' in dockerfile
+    assert 'Verify-Peer=false' not in dockerfile
+    assert 'Verify-Host=false' not in dockerfile
