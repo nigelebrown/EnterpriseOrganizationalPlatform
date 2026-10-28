@@ -113,3 +113,34 @@ def test_explicit_production_database_url_cannot_disable_tls(monkeypatch):
     monkeypatch.setenv('DATABASE_URL', 'mssql+pyodbc:///?odbc_connect=DRIVER%3DODBC%20Driver%2018%3BEncrypt%3Dyes%3BTrustServerCertificate%3Dyes')
     with pytest.raises(RuntimeError, match='verify server certificate'):
         database_url()
+
+
+def test_sql_backup_drains_result_sets_before_verification(monkeypatch):
+    """Prevent cancellation when a transient pyodbc Cursor is thrown away."""
+    from scripts import db_admin
+    events = []
+    class FakeCursor:
+        def __init__(self):
+            self.remaining = 2
+        def execute(self, sql, *params):
+            kind = 'backup' if sql.startswith('BACKUP') else ('verify' if sql.startswith('RESTORE') else 'lookup')
+            events.append(('execute', kind))
+            if kind == 'verify':
+                assert ('close', 'backup') in events
+            self.kind = kind
+            return self
+        def fetchval(self): return 1
+        def nextset(self):
+            events.append(('nextset', self.kind))
+            self.remaining -= 1
+            return self.remaining > 0
+        def close(self): events.append(('close', self.kind))
+    class FakeConnection:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def cursor(self): return FakeCursor()
+    monkeypatch.setenv('DB_NAME', 'JcfEnterpriseRegistry')
+    monkeypatch.setattr(db_admin, 'connect', lambda: FakeConnection())
+    monkeypatch.setattr(db_admin, 'verify_express', lambda conn: None)
+    db_admin.backup()
+    assert ('nextset', 'backup') in events and ('nextset', 'verify') in events
