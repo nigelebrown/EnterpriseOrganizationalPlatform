@@ -96,5 +96,5 @@ jobs:
             --env-file /etc/jcf-registry/deployment.env \
             -f deploy/compose.yaml ps -q registry)
           test "$(sudo docker inspect -f '{{.State.Health.Status}}' "$cid")" = healthy
-          test -f /etc/jcf-registry/runtime.env
-          sudo test "$(stat -c %a /etc/jcf-registry/runtime.env)" = 600
+          sudo test -f /etc/jcf-registry/runtime.env
+          test "$(sudo stat -c %a /etc/jcf-registry/runtime.env)" = 600
