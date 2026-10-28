@@ -76,3 +76,25 @@ jobs:
             -e APP_ENV=development -e CI_EPHEMERAL_DB=YES \
             -e DATABASE_URL='mssql+pyodbc://sa:CiOnly_StrongPass_2026!@127.0.0.1:1433/JcfEnterpriseMigration_TEST?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes' \
             --entrypoint python jcf-platform-ci scripts/ci_verify_alembic_sql2019.py
+
+  installer-end-to-end:
+    name: Fresh Linux VM installer and repeat upgrade
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: First run — provision application and real SQL2019 Express
+        run: sudo bash install.sh --mode local-express
+      - name: Second run — backup and non-destructive repeat upgrade
+        run: sudo bash install.sh
+      - name: Confirm existing SQL records and healthy application
+        run: |
+          sudo docker compose --project-name jcf-enterprise \
+            --env-file /etc/jcf-registry/deployment.env \
+            -f deploy/compose.yaml ps
+          cid=$(sudo docker compose --project-name jcf-enterprise \
+            --env-file /etc/jcf-registry/deployment.env \
+            -f deploy/compose.yaml ps -q registry)
+          test "$(sudo docker inspect -f '{{.State.Health.Status}}' "$cid")" = healthy
+          test -f /etc/jcf-registry/runtime.env
+          sudo test "$(stat -c %a /etc/jcf-registry/runtime.env)" = 600
