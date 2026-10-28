@@ -301,3 +301,50 @@ def test_facility_lookup_sources(client,service_client):
     lb=getid(service_client('LOCATION_BUILDING',dict(locationId=l,buildingId=b,validFrom='2020-01-01')))
     assert client.get('/api/v1/facilities/buildings?search=North').json()['items'][0]['buildingId']==b
     assert client.get(f'/api/v1/facilities/location-building-links?locationId={l}').json()['items'][0]['locationBuildingId']==lb
+
+def test_oidc_signature_expiry_and_audience(client,app,monkeypatch):
+    from datetime import datetime, timezone, timedelta
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    import jwt
+    import jcf_platform.main as main
+    from jcf_platform.main import _principal
+    app.dependency_overrides.pop(_principal,None)
+    app.state.settings.update({'issuer':'https://issuer.test','audience':'jcf-registry','jwks':'https://issuer.test/keys'})
+    key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+    class Key:
+        def __init__(self):self.key=key.public_key()
+    class Jwks:
+        def get_signing_key_from_jwt(self,token):return Key()
+    monkeypatch.setattr(main,'jwk_client',lambda _url:Jwks())
+    now=datetime.now(timezone.utc)
+    claims={'sub':'test-client','iss':'https://issuer.test','aud':'jcf-registry',
+            'scope':'registry.read','exp':now+timedelta(minutes=2)}
+    valid=jwt.encode(claims,key,algorithm='RS256')
+    assert client.get('/api/v1/registry/locations',headers={'Authorization':'Bearer '+valid}).status_code==200
+    expired=jwt.encode({**claims,'exp':now-timedelta(hours=1)},key,algorithm='RS256')
+    assert client.get('/api/v1/registry/locations',headers={'Authorization':'Bearer '+expired}).status_code==401
+    audience=jwt.encode({**claims,'aud':'other-service'},key,algorithm='RS256')
+    assert client.get('/api/v1/registry/locations',headers={'Authorization':'Bearer '+audience}).status_code==401
+    other_key=rsa.generate_private_key(public_exponent=65537,key_size=2048)
+    forged=jwt.encode(claims,other_key,algorithm='RS256')
+    assert client.get('/api/v1/registry/locations',headers={'Authorization':'Bearer '+forged}).status_code==401
+
+def test_sqlite_restart_persists_registry(tmp_path):
+    from fastapi.testclient import TestClient
+    from jcf_platform.main import create_app,_principal
+    from jcf_platform.models import Base
+    file=tmp_path/'jcf_registry_test.sqlite'
+    app=create_app('sqlite:///'+str(file));Base.metadata.create_all(app.state.engine)
+    app.state.claims={'sub':'maker','_scopes':{'registry.read','registry.write','registry.approve','registry.apply'}}
+    app.dependency_overrides[_principal]=lambda:app.state.claims
+    with TestClient(app) as c:
+        req=c.post('/api/v1/governance/requests',json={'action':'LOCATION_CREATE','payload':loc('A'),
+                              'reference':'TEST-RESTORE'})
+        crid=req.json()['changeRequestId']
+        app.state.claims['sub']='approver'
+        assert c.post(f'/api/v1/governance/requests/{crid}/decision',json={'decision':'APPROVED'}).status_code==200
+        assert c.post(f'/api/v1/governance/requests/{crid}/apply').status_code==200
+    restored=create_app('sqlite:///'+str(file))
+    restored.dependency_overrides[_principal]=lambda:{'sub':'reader','_scopes':{'registry.read'}}
+    with TestClient(restored) as c:
+        assert c.get('/api/v1/registry/locations').json()['items'][0]['code']=='A'
