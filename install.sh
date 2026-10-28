@@ -15,6 +15,7 @@ MIGRATION_SOURCE=''
 BACKUP_REFERENCE=''
 DRY_RUN=false
 INSTALL_DOCKER=true
+SEED_TEST_DATA=true
 APP_PORT=8080
 CANDIDATE=''
 STARTED_DEPLOY=false
@@ -41,6 +42,7 @@ Options:
   --backup-reference REF        Mandatory DBA-confirmed recoverable backup for external mode
   --port 8080                   Bound only to 127.0.0.1; provide trusted HTTPS reverse proxy
   --skip-docker-install         Do not add Docker packages if not already installed
+  --no-test-seed                Do not populate synthetic sample data on local Express
   --dry-run                     Display intended operations, make no changes
   -h, --help                    Print this help
 
@@ -66,6 +68,7 @@ while (($#)); do
     --port) APP_PORT="${2:?Missing port}"; shift 2;;
     --skip-docker-install) INSTALL_DOCKER=false; shift;;
     --dry-run) DRY_RUN=true; shift;;
+    --no-test-seed) SEED_TEST_DATA=false; shift;;
     -h|--help) usage; exit 0;;
     *) die "Unknown option: $1";;
   esac
@@ -256,6 +259,10 @@ else
 fi
 log 'Applying forward-only Alembic migrations using the separate migration account'
 compose --profile maintenance run --rm --no-deps migrate -m alembic upgrade head
+if [[ "$MODE" == local-express && "$SEED_TEST_DATA" == true ]]; then
+  log 'Seeding sample JCF-EMP TEST data (idempotent; not permitted for AG/production)'
+  compose --profile maintenance run --rm --no-deps migrate scripts/seed_test_data.py
+fi
 log 'Starting updated application and checking database readiness'
 compose up -d --no-build --no-deps registry
 ready=false

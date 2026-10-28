@@ -48,6 +48,39 @@ CI includes a CentOS Stream 9 container syntax/dry-run smoke test; full
 fresh-VM and upgrade acceptance testing on an actual CentOS Stream 9 host
 is required before operational sign-off.
 
+## Test-only sample data
+
+The local SQL Server 2019 Express installer runs `scripts/seed_test_data.py`
+**after** the Alembic migration. It adds 12 illustrative Location records (including
+SAC, SAS, J, JCF Headquarters, Strategic Operations and Technology Branch),
+5 standardized Section/Unit definitions, 16 location-specific unit occurrences,
+10 typed reporting edges (CIB/DIU dual reporting), 2 fictional buildings,
+3 building links, a clearly invalid-domain example contact, 3 synthetic personnel
+and postings, and one test leave request.
+
+All formation codes begin `DEMO-`; names begin `[TEST]`, and mock member
+numbers begin `TEST-JCF-`. These are **NOT official JCF records or authorized
+Force Orders**. Location parents, facilities and personnel details are illustrative.
+The fixture's separate requester and approver are synthetic test system identities
+and do not constitute actual human approval.
+
+The seed only runs in local Express mode. It requires APP_ENV=development,
+the fixed isolated Docker SQL Server hostname and database, AG disabled,
+and SQL Server 2019 Express edition. It refuses production/AG settings,
+does not overwrite user data, and skips a non-demo populated master register.
+
+Skip optional test data on an Express VM with `sudo bash install.sh --no-test-seed`.
+Repeated installer runs do not duplicate fixture records.
+
+To verify records in the installed database without changing data:
+
+```bash
+sudo docker compose --project-name jcf-enterprise \
+  --env-file /etc/jcf-registry/deployment.env \
+  -f deploy/compose.yaml --profile maintenance run --rm --no-deps \
+  migrate scripts/seed_test_data.py --verify
+```
+
 ## One-click development install
 
 From the checked-out repository branch containing `install.sh`:

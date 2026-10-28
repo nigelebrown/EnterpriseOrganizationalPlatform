@@ -51,6 +51,26 @@ CentOS Stream 9 uses the official Docker RPM repository and does not disable SEL
 
 Full instructions and safety constraints: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
+## Synthetic development sample data
+
+The one-click `--mode local-express` installation now seeds an **illustrative test-only**
+JCF-EMP dataset after schema migrations: 12 example Locations, 5 Section/Unit
+definitions, 16 LocationSection assignments, 10 matrix/command relationships,
+2 fictional buildings, 3 building occupancy records, and 3 synthetic member
+postings. Search **SAC**, **SAS**, **J**, **CIB**, or **DIU**.
+
+All generated Location and Section codes are `DEMO-*`, all sample person numbers
+are `TEST-JCF-*`, and formation names are prefixed `[TEST]`. Organizational
+hierarchies and associations are **illustrative, not an approved JCF master list**.
+No real officers or actual building addresses are inserted.
+
+The seed uses governed change requests with **distinct synthetic test identities**
+(not real human approvals), never overwrites existing samples, and rejects
+production/Always On AG connections. Existing non-demo reference registers
+are skipped unless test seed data are already present. On local Express you can
+opt out with `sudo bash install.sh --no-test-seed`. Repeat upgrades preserve data.
+See [installation guidance](docs/INSTALLATION.md#test-only-sample-data).
+
 ## SQL 2019 development vs AG
 
 - **Express 2019:** `DB_AG_ENABLED=false`, direct SQL hostname, TLS CA validation, max DB size 10 GB.
