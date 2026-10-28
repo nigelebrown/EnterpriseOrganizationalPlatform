@@ -1,0 +1,172 @@
+"""HTTP-level acceptance checks through the actual API, governance and SQLite persistence.
+SQL Server integration, OIDC issuer, AG failover and security penetration tests are separate release gates.
+"""
+from datetime import date
+from uuid import uuid4
+from jcf_platform import models as m
+
+def loc(code,name='Division A',valid='2020-01-01',**kw):
+    return dict(code=code,name=name,locationType='DIVISION',validFrom=valid,**kw)
+def section(code,name):return dict(code=code,name=name,validFrom='2020-01-01')
+def attach(locationId,definitionId,**kw):return dict(locationId=locationId,sectionDefinitionId=definitionId,validFrom='2020-01-01',**kw)
+def getid(r):assert r.status_code==200,r.text;return r.json()['entityId']
+
+def test_health_and_admin(client):
+    assert client.get('/health/live').status_code==200
+    assert client.get('/health/ready').json()['status']=='ready'
+    assert 'JCF Enterprise' in client.get('/admin').text
+    assert client.get('/assets/admin.js').status_code==200
+    assert client.get('/api/openapi.json').status_code==200
+
+def test_fail_closed_auth(client,app):
+    from jcf_platform.main import _principal
+    app.dependency_overrides.pop(_principal)
+    assert client.get('/api/v1/registry/locations').status_code==401
+    app.dependency_overrides[_principal]=lambda: {'sub':'wrong','_scopes':set()}
+    assert client.get('/api/v1/registry/locations').status_code==403
+
+def test_full_onboarding_flow(client,service_client):
+    a=getid(service_client('LOCATION_CREATE',loc('DIV-A')))
+    cib=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    ls=getid(service_client('SECTION_ATTACH',attach(a,cib)))
+    locations=client.get('/api/v1/registry/locations?asOf=2026-10-28').json()['items']
+    assert locations[0]['locationId']==a
+    assert not any(x.get('isDefault') for x in client.get(f'/api/v1/registry/locations/{a}/sections').json()['items'])
+    assert client.get(f'/api/v1/registry/locations/{a}/sections').json()['items'][0]['name']=='CIB'
+    v=client.post('/api/v1/registry/posting-selections/validate',json={'locationId':a,'sectionId':ls,'effectiveOn':'2026-10-28'})
+    assert v.status_code==200
+    b=getid(service_client('LOCATION_CREATE',loc('DIV-B','Division B')))
+    bad=client.post('/api/v1/registry/posting-selections/validate',json={'locationId':b,'sectionId':ls,'effectiveOn':'2026-10-28'})
+    assert bad.status_code==422 and bad.json()['code']=='SECTION_NOT_IN_LOCATION'
+    other=getid(service_client('SECTION_ATTACH',attach(b,cib)))
+    assert ls!=other
+    assert client.get(f'/api/v1/registry/locations/{b}/sections').json()['items'][0]['sectionId']==other
+
+def test_governance_rejects_self_approval(client,app):
+    r=client.post('/api/v1/governance/requests',json={'action':'LOCATION_CREATE','payload':loc('A'),'reference':'ORDER-X'})
+    rid=r.json()['changeRequestId']
+    r=client.post(f'/api/v1/governance/requests/{rid}/decision',json={'decision':'APPROVED'})
+    assert r.status_code==403 and r.json()['code']=='SELF_APPROVAL'
+    r=client.post(f'/api/v1/governance/requests/{rid}/apply')
+    assert r.status_code==409
+    app.state.claims['sub']='another'
+    assert client.post(f'/api/v1/governance/requests/{rid}/decision',json={'decision':'APPROVED'}).status_code==200
+    assert client.post(f'/api/v1/governance/requests/{rid}/apply').status_code==200
+    assert client.post(f'/api/v1/governance/requests/{rid}/apply').status_code==409
+
+def test_name_history_and_alias(client,service_client):
+    a=getid(service_client('LOCATION_CREATE',loc('SAC','Saint Andrew Central')))
+    getid(service_client('LOCATION_ALIAS',dict(locationId=a,alias='SAC HQ')))
+    assert len(client.get('/api/v1/registry/locations?search=SAC%20HQ').json()['items'])==1
+    getid(service_client('LOCATION_RENAME',dict(locationId=a,name='New Central',effectiveFrom='2026-07-01')))
+    old=client.get('/api/v1/registry/locations?asOf=2026-06-30').json()['items'][0]['name']
+    new=client.get('/api/v1/registry/locations?asOf=2026-07-01').json()['items'][0]['name']
+    assert old=='Saint Andrew Central' and new=='New Central'
+
+def test_two_authorities_and_direction(client,service_client):
+    div=getid(service_client('LOCATION_CREATE',loc('DIV-A')))
+    cib_hq=getid(service_client('LOCATION_CREATE',loc('CIBHQ','CIB HQ')))
+    strat=getid(service_client('LOCATION_CREATE',loc('STRAT','Strategic Operations')))
+    cib=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    unit=getid(service_client('SECTION_ATTACH',attach(div,cib)))
+    for source,target,typ in [(unit,div,'LOCAL'),(unit,cib_hq,'FUNCTIONAL'),(div,strat,'OPERATIONAL')]:
+        getid(service_client('REPORTING_EDGE',dict(sourceId=source,authorityId=target,relationType=typ,
+                                                   validFrom='2020-01-01')))
+    links=client.get(f'/api/v1/org-nodes/{unit}/reporting').json()['authorities']
+    assert {(x['authorityOrgNodeId'],x['type']) for x in links}=={(div,'LOCAL'),(cib_hq,'FUNCTIONAL')}
+    assert client.get(f'/api/v1/org-nodes/{cib_hq}/reporting').json()['authorities']==[]
+    dup=service_client('REPORTING_EDGE',dict(sourceId=unit,authorityId=cib_hq,relationType='FUNCTIONAL',validFrom='2021-01-01'))
+    assert dup.status_code==409
+
+def test_temporal_parent_cycle(client,service_client):
+    a=getid(service_client('LOCATION_CREATE',loc('A')))
+    b=getid(service_client('LOCATION_CREATE',loc('B')))
+    c=getid(service_client('LOCATION_CREATE',loc('C')))
+    getid(service_client('LOCATION_PARENT',dict(childId=b,parentId=a,validFrom='2020-01-01')))
+    getid(service_client('LOCATION_PARENT',dict(childId=c,parentId=b,validFrom='2020-01-01')))
+    assert service_client('LOCATION_PARENT',dict(childId=a,parentId=c,validFrom='2020-01-01')).status_code==409
+    assert service_client('LOCATION_PARENT',dict(childId=b,parentId=c,validFrom='2020-01-01')).status_code==409
+
+def test_facilities_multi_building(client,service_client):
+    locid=getid(service_client('LOCATION_CREATE',loc('A')))
+    defin=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    unit=getid(service_client('SECTION_ATTACH',attach(locid,defin)))
+    lids=[]
+    for name in 'ABC':
+        b=getid(service_client('BUILDING_CREATE',dict(code='B'+name,name='Building '+name,address='Street '+name,
+                        parish='Kingston',validFrom='2020-01-01',latitude=18.01,longitude=-76.81)))
+        lids.append(getid(service_client('LOCATION_BUILDING',dict(locationId=locid,buildingId=b,validFrom='2020-01-01'))))
+    for i,lid in enumerate(lids[:2]):
+        getid(service_client('SECTION_BUILDING',dict(sectionId=unit,locationBuildingId=lid,
+                                           validFrom='2020-01-01',assignmentType='PRIMARY' if i==0 else 'SECONDARY')))
+    got=client.get(f'/api/v1/registry/sections/{unit}/buildings').json()['items']
+    assert {b['name'] for b in got}=={'Building A','Building B'}
+    assert len(client.get(f'/api/v1/registry/locations/{locid}/buildings').json()['items'])==3
+    assert service_client('SECTION_BUILDING',dict(sectionId=unit,locationBuildingId=lids[1],
+                         validFrom='2020-01-01',assignmentType='PRIMARY')).status_code==409
+
+def test_gps_and_occupancy_validation(client,service_client):
+    missing=service_client('BUILDING_CREATE',dict(code='BAD',name='Bad',address='X',parish='Y',
+                              validFrom='2020-01-01',latitude=20.0))
+    assert missing.status_code==422
+    invalid=service_client('BUILDING_CREATE',dict(code='BAD2',name='Bad2',address='X',parish='Y',
+                              validFrom='2020-01-01',latitude=92.0,longitude=-76.0))
+    assert invalid.status_code==422
+
+def test_personnel_posting_and_leave(client,service_client):
+    locid=getid(service_client('LOCATION_CREATE',loc('A')))
+    defin=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    unit=getid(service_client('SECTION_ATTACH',attach(locid,defin)))
+    p=getid(service_client('PERSONNEL_CREATE',dict(computerNumber='12345',displayName='Test Officer')))
+    getid(service_client('POSTING_CREATE',dict(personnelId=p,locationId=locid,sectionId=unit,validFrom='2020-01-01')))
+    assert service_client('POSTING_CREATE',dict(personnelId=p,locationId=locid,sectionId=unit,
+                             validFrom='2022-01-01')).status_code==409
+    assert len(client.get(f'/api/v1/hr/personnel/{p}/postings').json()['items'])==1
+    getid(service_client('LEAVE_REQUEST',dict(personnelId=p,category='ANNUAL',startsOn='2026-11-01',endsBefore='2026-11-05')))
+    assert client.get(f'/api/v1/hr/personnel/{p}/leave').json()['items'][0]['status']=='REQUESTED'
+
+def test_restricted_visibility(client,service_client,app):
+    locid=getid(service_client('LOCATION_CREATE',loc('SECRET','Protected HQ',visibility='RESTRICTED')))
+    defin=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    unit=getid(service_client('SECTION_ATTACH',attach(locid,defin,visibility='RESTRICTED')))
+    assert client.get('/api/v1/registry/locations?search=Protected').json()['items']==[]
+    assert client.get(f'/api/v1/registry/locations/{locid}/sections').status_code==404
+    assert client.post('/api/v1/registry/posting-selections/validate',json={'locationId':locid,'sectionId':unit,'effectiveOn':'2026-10-28'}).status_code==404
+    app.state.claims['_scopes'].add('registry.restricted.read')
+    assert client.get(f'/api/v1/registry/locations/{locid}/sections').status_code==200
+
+def test_contact_privacy(client,service_client,app):
+    locid=getid(service_client('LOCATION_CREATE',loc('A')))
+    getid(service_client('CONTACT_ASSIGN',dict(entityKind='LOCATION',entityId=locid,kind='PHONE',
+                       value='8765550100',purpose='RECEPTION',visibility='INTERNAL',validFrom='2020-01-01')))
+    getid(service_client('CONTACT_ASSIGN',dict(entityKind='LOCATION',entityId=locid,kind='MOBILE',
+                       value='8765559999',purpose='PRIVATE',visibility='PERSONAL',validFrom='2020-01-01')))
+    assert len(client.get(f'/api/v1/contacts?entityKind=LOCATION&entityId={locid}').json()['items'])==1
+    app.state.claims['_scopes'].add('contacts.personal.read')
+    assert len(client.get(f'/api/v1/contacts?entityKind=LOCATION&entityId={locid}').json()['items'])==2
+
+def test_batch_import_excel_preview(client):
+    content=b'type,code,name,validFrom,locationType\nLOCATION,SAC,Saint Andrew Central,2020-01-01,DIVISION\nSECTION,CIB,CIB,2020-01-01,\n'
+    r=client.post('/api/v1/import/preview',files={'file':('data.csv',content,'text/csv')})
+    assert r.status_code==200,r.text
+    assert len(r.json()['operations'])==2
+
+def test_batch_import_transaction(client,service_client):
+    ops=[{'action':'LOCATION_CREATE','payload':loc('DIV-A')},{'action':'SECTION_DEFINE','payload':section('CIB','CIB')}]
+    getid(service_client('BATCH_REGISTER',dict(operations=ops)))
+    assert len(client.get('/api/v1/registry/locations').json()['items'])==1
+    bad=service_client('BATCH_REGISTER',dict(operations=[{'action':'LOCATION_CREATE','payload':loc('DIV-B')},
+         {'action':'LOCATION_CREATE','payload':loc('DIV-A')}]))
+    assert bad.status_code==409
+    assert len(client.get('/api/v1/registry/locations').json()['items'])==1
+
+def test_event_feed(client,service_client):
+    getid(service_client('LOCATION_CREATE',loc('A')))
+    events=client.get('/api/v1/registry/changes?after=0').json()['items']
+    assert len(events)==1 and events[0]['kind']=='LOCATION_CREATE'
+
+def test_date_overlap_algorithm():
+    from jcf_platform.service import overlap,contained
+    assert not overlap(date(2020,1,1),date(2020,2,1),date(2020,2,1),None)
+    assert overlap(date(2020,1,1),None,date(2026,1,1),None)
+    assert not contained(date(2020,1,1),None,date(2020,1,1),date(2021,1,1))

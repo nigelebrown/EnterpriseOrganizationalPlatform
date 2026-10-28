@@ -1,0 +1,26 @@
+services:
+  registry:
+    build: ..
+    image: jcf/enterprise-organizational-platform:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      APP_ENV: production
+      DB_HOST: ${DB_HOST:?Required}
+      DB_NAME: ${DB_NAME:-JcfEnterpriseRegistry}
+      DB_USER: ${DB_USER:?Required}
+      DB_PASSWORD: ${DB_PASSWORD:?Required}
+      DB_AG_ENABLED: ${DB_AG_ENABLED:-false}
+      AUTH_ISSUER: ${AUTH_ISSUER:?Required}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:?Required}
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:?Required}
+      ADMIN_OIDC_CLIENT_ID: ${ADMIN_OIDC_CLIENT_ID:?Required}
+      ADMIN_OIDC_AUTHORIZATION_ENDPOINT: ${ADMIN_OIDC_AUTHORIZATION_ENDPOINT:?Required}
+      ADMIN_OIDC_TOKEN_ENDPOINT: ${ADMIN_OIDC_TOKEN_ENDPOINT:?Required}
+      ADMIN_REDIRECT_URI: ${ADMIN_REDIRECT_URI:?Required}
+    ports:
+      - '127.0.0.1:8080:8080'

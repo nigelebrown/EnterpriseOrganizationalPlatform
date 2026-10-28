@@ -1,0 +1,21 @@
+name: Registry CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install dependencies
+        run: pip install -e '.[test]'
+      - name: Unit and HTTP end-to-end acceptance tests (SQLite isolated)
+        run: python -m pytest tests -q
+      - name: Validate SQL Server 2019 DDL compilation
+        run: python scripts/verify_sqlserver_ddl.py
+  # AG listener failover, SQL Server Express live tests, OIDC/AD and penetration tests require
+  # JCF-controlled runners and secrets. They are *mandatory release gates*, not CI passes here.
