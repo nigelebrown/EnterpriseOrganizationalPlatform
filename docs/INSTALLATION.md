@@ -9,17 +9,44 @@ It never force-drops an existing database, deletes a volume, or silently resets 
 
 ## Tested platforms and dependencies
 
-- x86-64 Ubuntu 22.04/24.04 LTS or Debian 12, with `git`, `sudo`, `python3` and internet access
-  to approved Docker/Microsoft/PyPI image sources (or configured enterprise mirrors).
+- x86-64 CentOS Stream 9, Ubuntu 22.04/24.04 LTS or Debian 12, with access to approved Docker/Microsoft/PyPI sources. CentOS Stream 9 uses dnf to bootstrap missing prerequisites.
 - At least 4 GB RAM on a combined development app + SQL2019 Express VM (larger is preferable).
   An external SQL listener mode does not install SQL Server on the application VM.
-- Docker Engine, Compose plugin, and Docker Buildx are installed from Docker's official apt
-  repository only if not already present. The installer requires root and an exclusive lock.
+- Docker Engine, Compose and Buildx are installed using the official Docker RPM repository on CentOS Stream 9 or apt on Ubuntu/Debian, only when absent. The installer requires root and an exclusive lock.
 - SQL Server Express is **not** a member of an Always On Availability Group. Production must use
   an independently operated SQL Server 2019 AG listener and approved licensing/HA configuration.
 - SQL Server data is a persistent Docker volume, **not** a disposable container layer. A local SQL
   backup is saved in the same persistent volume for migration recovery. Maintain independent/off-host
   backups for actual disaster recovery.
+
+## CentOS Stream 9 — one-click command line setup
+
+On a CentOS Stream 9 x86_64 VM, clone the authenticated private GitHub development branch:
+
+```bash
+git clone -b feat/initial-modular-platform https://github.com/nigelebrown/EnterpriseOrganizationalPlatform.git
+cd EnterpriseOrganizationalPlatform
+sudo bash install.sh --mode local-express
+```
+
+For a previously installed system after updating source:
+
+```bash
+git pull
+sudo bash install.sh
+```
+
+The installer uses `dnf` and Docker's official CentOS repository; SQL Server 2019
+Express runs in a persistent Docker container (not as a CentOS RPM).
+Do **not** disable SELinux or firewalld. The application binds to loopback
+`127.0.0.1:8080`; expose access only through a separately configured
+HTTPS reverse proxy on approved firewall ports. Docker-managed named volumes
+avoid unlabelled CentOS host bind mounts. External AG mode connects to an
+existing SQL Server 2019 listener and does not install SQL locally.
+
+CI includes a CentOS Stream 9 container syntax/dry-run smoke test; full
+fresh-VM and upgrade acceptance testing on an actual CentOS Stream 9 host
+is required before operational sign-off.
 
 ## One-click development install
 

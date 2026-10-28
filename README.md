@@ -22,7 +22,7 @@ entities. The browser administrator console uses enterprise OIDC Authorization C
 
 ## One-command installation and safe repeat upgrade (Linux)
 
-From a fresh Ubuntu 22.04/24.04 or Debian 12 x86-64 VM after checkout:
+From a fresh **CentOS Stream 9**, Ubuntu 22.04/24.04 or Debian 12 x86-64 VM after checkout (the installer automatically selects dnf or apt):
 
 ```bash
 sudo bash install.sh --mode local-express
@@ -44,6 +44,8 @@ The installer keeps all `/etc/jcf-registry` secrets and persistent SQL data, tak
 backup before migrations, validates database readiness and attempts an application-only rollback
 if startup fails. External SQL2019 AG mode is supported with separate runtime/migration credentials
 and a DBA-confirmed restore point; do **not** deploy an AG on SQL Express.
+
+CentOS Stream 9 uses the official Docker RPM repository and does not disable SELinux or firewalld. The application remains bound to 127.0.0.1 until a trusted HTTPS proxy is configured. CentOS full-VM testing remains outstanding.
 
 Full instructions and safety constraints: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 

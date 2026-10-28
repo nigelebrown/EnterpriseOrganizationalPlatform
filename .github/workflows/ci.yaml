@@ -19,6 +19,11 @@ jobs:
         run: python scripts/verify_sqlserver_ddl.py
       - name: Validate one-click installer syntax and dry-run
         run: bash -n install.sh && bash install.sh --dry-run --mode local-express
+      - name: CentOS Stream 9 container shell and dry-run smoke test
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace \
+            quay.io/centos/centos:stream9 bash -c \
+            'set -e; . /etc/os-release; test "$ID" = centos; test "$VERSION_ID" = 9; bash -n install.sh; bash install.sh --dry-run --mode local-express'
   # AG listener failover, SQL Server Express live tests, OIDC/AD and penetration tests require
   # JCF-controlled runners and secrets. They are *mandatory release gates*, not CI passes here.
   sql2019-express:

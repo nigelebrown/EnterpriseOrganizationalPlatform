@@ -24,7 +24,7 @@ usage() {
   cat <<'HELP'
 JCF Enterprise Organizational Platform — repeatable Linux installer.
 
-Fresh isolated TEST VM (creates persistent SQL Server 2019 Express):
+Fresh CentOS Stream 9 or Linux TEST VM (SQL Server 2019 Express container):
   sudo bash install.sh --mode local-express
 
 After git pull (preserves SQL data and config; backup, migration, health validation):
@@ -81,26 +81,60 @@ fi
 [[ "$(uname -s)" == Linux ]] || die 'Linux required'
 [[ "$(uname -m)" == x86_64 ]] || die 'x86_64 host required for SQL Server 2019 container/ODBC image'
 [[ -r /etc/os-release ]] || die 'Cannot determine Linux distribution'
-command -v python3 >/dev/null || die 'Python 3 is required on the installation host'
 . /etc/os-release
 case "${ID}:${VERSION_ID}" in
-  ubuntu:22.04|ubuntu:24.04|debian:12) ;;
-  *) die "Unsupported host ${ID}:${VERSION_ID}; supported Ubuntu 22.04/24.04 or Debian 12";;
+  ubuntu:22.04|ubuntu:24.04|debian:12) PACKAGE_FAMILY=apt ;;
+  centos:9|centos:9.*) PACKAGE_FAMILY=dnf ;;
+  *) die "Unsupported host ${ID}:${VERSION_ID}; supported CentOS Stream 9, Ubuntu 22.04/24.04, Debian 12";;
 esac
-command -v flock >/dev/null || die 'flock missing (install util-linux)'
+# Host Python is for setup only; the application uses Python 3.12 in Docker.
+bootstrap_host_prereqs(){
+  if [[ "$PACKAGE_FAMILY" == dnf ]]; then
+    command -v dnf >/dev/null || die 'CentOS Stream 9 requires dnf'
+    local packages=()
+    command -v python3 >/dev/null || packages+=(python3)
+    command -v flock >/dev/null || packages+=(util-linux)
+    command -v curl >/dev/null || packages+=(curl)
+    command -v git >/dev/null || packages+=(git)
+    command -v ss >/dev/null || packages+=(iproute)
+    if (("${#packages[@]}" > 0)); then
+      log "Installing missing CentOS prerequisites: ${packages[*]}"
+      dnf -y install "${packages[@]}"
+    fi
+  fi
+  command -v python3 >/dev/null || die 'Python 3 is required on the host'
+  command -v flock >/dev/null || die 'flock is required (util-linux)'
+  command -v curl >/dev/null || die 'curl is required'
+}
+bootstrap_host_prereqs
 exec 9>"$LOCK_FILE"
 flock -n 9 || die 'Another installation is running'
 
 ensure_docker(){
-  if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then return; fi
+  if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
+    if ! docker info >/dev/null 2>&1; then
+      log 'Docker is installed but stopped; starting existing Docker daemon'
+      systemctl enable --now docker || die 'Unable to start Docker Engine'
+    fi
+    docker info >/dev/null 2>&1 || die 'Docker daemon is unavailable'
+    return
+  fi
   [[ "$INSTALL_DOCKER" == true ]] || die 'Docker Engine and Compose plugin required'
-  log 'Installing Docker Engine and Compose plugin from the official apt repository'
-  apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg
-  install -m 0755 -d /etc/apt/keyrings
-  curl --fail --silent --show-error --location "https://download.docker.com/linux/${ID}/gpg" -o /etc/apt/keyrings/docker.asc
-  chmod a+r /etc/apt/keyrings/docker.asc
-  cat > /etc/apt/sources.list.d/docker.sources <<EOF
+  if [[ "$PACKAGE_FAMILY" == dnf ]]; then
+    log 'Installing Docker Engine, Buildx and Compose from official CentOS RPM repository'
+    # Do not remove Podman or conflicting RPMs automatically on an existing VM.
+    dnf -y install dnf-plugins-core ca-certificates curl
+    dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+    dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
+      || die 'Docker install failed; review conflicting RPMs and repositories, no packages were forcibly removed'
+  else
+    log 'Installing Docker Engine and Compose from official apt repository'
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg
+    install -m 0755 -d /etc/apt/keyrings
+    curl --fail --silent --show-error --location "https://download.docker.com/linux/${ID}/gpg" -o /etc/apt/keyrings/docker.asc
+    chmod a+r /etc/apt/keyrings/docker.asc
+    cat > /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/${ID}
 Suites: ${VERSION_CODENAME}
@@ -108,10 +142,12 @@ Components: stable
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
-  apt-get update -qq
-  DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  systemctl enable --now docker
-  docker compose version >/dev/null
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  fi
+  systemctl enable --now docker || die 'Cannot enable/start Docker Engine'
+  docker compose version >/dev/null || die 'Docker Compose plugin unavailable'
+  docker info >/dev/null 2>&1 || die 'Docker daemon is unavailable'
 }
 
 mkdir -p "$CONFIG_DIR"

@@ -144,3 +144,14 @@ def test_sql_backup_drains_result_sets_before_verification(monkeypatch):
     monkeypatch.setattr(db_admin, 'verify_express', lambda conn: None)
     db_admin.backup()
     assert ('nextset', 'backup') in events and ('nextset', 'verify') in events
+
+
+def test_centos_stream_9_install_mode_present_and_safe():
+    script = (ROOT / 'install.sh').read_text()
+    for snippet in ('centos:9', 'dnf -y install dnf-plugins-core',
+                    'download.docker.com/linux/centos/docker-ce.repo',
+                    'docker-buildx-plugin docker-compose-plugin',
+                    'systemctl enable --now docker'):
+        assert snippet in script
+    for dangerous in ('setenforce 0', 'systemctl stop firewalld', 'dnf remove'):
+        assert dangerous not in script
