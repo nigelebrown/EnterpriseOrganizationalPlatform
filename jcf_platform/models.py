@@ -23,7 +23,7 @@ class OrgNode(Base):
 
 class Location(Base):
     __tablename__ = 'location'
-    id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='RESTRICT'), primary_key=True)
+    id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='NO ACTION'), primary_key=True)
     code: Mapped[str] = mapped_column(String(45), unique=True, nullable=False)
     location_type: Mapped[str] = mapped_column(String(40), nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
@@ -37,7 +37,7 @@ class Location(Base):
 class LocationName(Base):
     __tablename__ = 'location_name'
     id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=guid)
-    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='RESTRICT'), nullable=False)
+    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='NO ACTION'), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
@@ -47,8 +47,8 @@ class LocationName(Base):
 class LocationParent(Base):
     __tablename__ = 'location_parent'
     id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=guid)
-    child_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='RESTRICT'), nullable=False)
-    parent_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='RESTRICT'), nullable=False)
+    child_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='NO ACTION'), nullable=False)
+    parent_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='NO ACTION'), nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
     __table_args__ = (CheckConstraint('child_id <> parent_id', name='ck_parent_self'),
@@ -66,7 +66,7 @@ class SectionDefinition(Base):
 class SectionName(Base):
     __tablename__ = 'section_name'
     id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=guid)
-    definition_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('section_definition.id', ondelete='RESTRICT'), nullable=False)
+    definition_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('section_definition.id', ondelete='NO ACTION'), nullable=False)
     name: Mapped[str] = mapped_column(String(180), nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
@@ -74,9 +74,9 @@ class SectionName(Base):
 
 class LocationSection(Base):
     __tablename__ = 'location_section'
-    id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='RESTRICT'), primary_key=True)
-    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='RESTRICT'), nullable=False)
-    definition_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('section_definition.id', ondelete='RESTRICT'), nullable=False)
+    id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='NO ACTION'), primary_key=True)
+    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='NO ACTION'), nullable=False)
+    definition_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('section_definition.id', ondelete='NO ACTION'), nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -89,7 +89,7 @@ class LocationSection(Base):
 class LocationAlias(Base):
     __tablename__ = 'location_alias'
     id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=guid)
-    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='RESTRICT'), nullable=False)
+    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='NO ACTION'), nullable=False)
     alias: Mapped[str] = mapped_column(String(100), nullable=False)
     normalized_alias: Mapped[str] = mapped_column(String(100), nullable=False)
     __table_args__ = (UniqueConstraint('location_id','normalized_alias',name='uq_location_alias'),
@@ -98,7 +98,7 @@ class LocationAlias(Base):
 class SectionAlias(Base):
     __tablename__ = 'section_alias'
     id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=guid)
-    definition_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('section_definition.id', ondelete='RESTRICT'), nullable=False)
+    definition_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('section_definition.id', ondelete='NO ACTION'), nullable=False)
     alias: Mapped[str] = mapped_column(String(100), nullable=False)
     normalized_alias: Mapped[str] = mapped_column(String(100), nullable=False)
     __table_args__ = (UniqueConstraint('definition_id','normalized_alias',name='uq_section_alias'),)
@@ -106,8 +106,8 @@ class SectionAlias(Base):
 class ReportingEdge(Base):
     __tablename__ = 'reporting_edge'
     id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=guid)
-    source_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='RESTRICT'), nullable=False)
-    authority_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='RESTRICT'), nullable=False)
+    source_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='NO ACTION'), nullable=False)
+    authority_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('org_node.id', ondelete='NO ACTION'), nullable=False)
     relation_type: Mapped[str] = mapped_column(String(40), nullable=False)
     scope: Mapped[str] = mapped_column(String(250), default='', nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
@@ -134,8 +134,8 @@ class Building(Base):
 class LocationBuilding(Base):
     __tablename__ = 'location_building'
     id: Mapped[UUID] = mapped_column(Uuid(), primary_key=True, default=guid)
-    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='RESTRICT'), nullable=False)
-    building_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('building.id', ondelete='RESTRICT'), nullable=False)
+    location_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('location.id', ondelete='NO ACTION'), nullable=False)
+    building_id: Mapped[UUID] = mapped_column(Uuid(), ForeignKey('building.id', ondelete='NO ACTION'), nullable=False)
     occupancy_type: Mapped[str] = mapped_column(String(20), default='PERMANENT', nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
@@ -151,8 +151,8 @@ class SectionBuilding(Base):
     assignment_type: Mapped[str] = mapped_column(String(20), default='SECONDARY',nullable=False)
     valid_from: Mapped[date] = mapped_column(Date, nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
-    __table_args__ = (ForeignKeyConstraint(['section_id','location_id'],['location_section.id','location_section.location_id'],ondelete='RESTRICT'),
-                      ForeignKeyConstraint(['location_building_id','location_id'],['location_building.id','location_building.location_id'],ondelete='RESTRICT'),
+    __table_args__ = (ForeignKeyConstraint(['section_id','location_id'],['location_section.id','location_section.location_id'],ondelete='NO ACTION'),
+                      ForeignKeyConstraint(['location_building_id','location_id'],['location_building.id','location_building.location_id'],ondelete='NO ACTION'),
                       CheckConstraint('valid_to IS NULL OR valid_from < valid_to', name='ck_secbuilding_dates'))
 
 class Contact(Base):
@@ -168,7 +168,7 @@ class Contact(Base):
 class ContactAssignment(Base):
     __tablename__ = 'contact_assignment'
     id: Mapped[UUID] = mapped_column(Uuid(),primary_key=True,default=guid)
-    contact_id: Mapped[UUID] = mapped_column(Uuid(),ForeignKey('contact.id',ondelete='RESTRICT'),nullable=False)
+    contact_id: Mapped[UUID] = mapped_column(Uuid(),ForeignKey('contact.id',ondelete='NO ACTION'),nullable=False)
     entity_kind: Mapped[str] = mapped_column(String(32),nullable=False)
     entity_id: Mapped[UUID] = mapped_column(Uuid(),nullable=False)
     purpose: Mapped[str] = mapped_column(String(64),nullable=False)
@@ -186,21 +186,21 @@ class Personnel(Base):
 class Posting(Base):
     __tablename__ = 'posting'
     id: Mapped[UUID] = mapped_column(Uuid(),primary_key=True,default=guid)
-    personnel_id: Mapped[UUID] = mapped_column(Uuid(),ForeignKey('personnel.id',ondelete='RESTRICT'),nullable=False)
+    personnel_id: Mapped[UUID] = mapped_column(Uuid(),ForeignKey('personnel.id',ondelete='NO ACTION'),nullable=False)
     location_id: Mapped[UUID] = mapped_column(Uuid(),nullable=False)
     section_id: Mapped[UUID] = mapped_column(Uuid(),nullable=False)
     is_primary: Mapped[bool] = mapped_column(Boolean,default=True,nullable=False)
     valid_from: Mapped[date] = mapped_column(Date,nullable=False)
     valid_to: Mapped[date | None] = mapped_column(Date)
     reference: Mapped[str] = mapped_column(String(160),nullable=False)
-    __table_args__ = (ForeignKeyConstraint(['section_id','location_id'],['location_section.id','location_section.location_id'],ondelete='RESTRICT'),
+    __table_args__ = (ForeignKeyConstraint(['section_id','location_id'],['location_section.id','location_section.location_id'],ondelete='NO ACTION'),
                       CheckConstraint('valid_to IS NULL OR valid_from < valid_to',name='ck_posting_dates'),
                       Index('ix_posting_person_date','personnel_id','valid_from','valid_to'))
 
 class LeaveRequest(Base):
     __tablename__='leave_request'
     id: Mapped[UUID] = mapped_column(Uuid(),primary_key=True,default=guid)
-    personnel_id: Mapped[UUID] = mapped_column(Uuid(),ForeignKey('personnel.id',ondelete='RESTRICT'),nullable=False)
+    personnel_id: Mapped[UUID] = mapped_column(Uuid(),ForeignKey('personnel.id',ondelete='NO ACTION'),nullable=False)
     category: Mapped[str] = mapped_column(String(50),nullable=False)
     starts_on: Mapped[date] = mapped_column(Date,nullable=False)
     ends_before: Mapped[date] = mapped_column(Date,nullable=False)

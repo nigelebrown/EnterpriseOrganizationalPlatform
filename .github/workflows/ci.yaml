@@ -34,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build Linux app container with Microsoft ODBC Driver 18
-        run: docker build -t jcf-platform-ci .
+        run: docker build --build-arg INCLUDE_TEST_DEPS=1 -t jcf-platform-ci .
       - name: Initialize disposable database (CI only)
         run: |
           docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \

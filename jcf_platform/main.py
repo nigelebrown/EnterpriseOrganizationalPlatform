@@ -299,12 +299,17 @@ def create_app(database_url=None, *, engine=None):
     def decision(request_id:UUID,body:Decision,request:Request,
                  claims=Depends(_principal),db:Session=Depends(db_session)):
         require_action_scope(s.get(db,m.ChangeRequest,request_id).action,'approve',claims)
+        # End this read transaction so the domain handler can acquire SERIALIZABLE
+        # isolation and its exclusive SQL Server application lock before re-reading.
+        db.rollback()
         row=s.decide_request(db,request_id,body.decision,claims['sub'],request.state.correlation_id)
         return {'changeRequestId':str(row.id),'status':row.status}
     @app.post('/api/v1/governance/requests/{request_id}/apply',tags=['Governance'])
     def apply(request_id:UUID,request:Request,claims=Depends(_principal),
               db:Session=Depends(db_session)):
         require_action_scope(s.get(db,m.ChangeRequest,request_id).action,'apply',claims)
+        # Recheck the request under the mutation transaction / application lock.
+        db.rollback()
         entity_id=s.apply_request(db,request_id,claims['sub'],request.state.correlation_id)
         return {'changeRequestId':str(request_id),'entityId':str(entity_id),'status':'APPLIED'}
 

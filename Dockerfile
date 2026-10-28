@@ -8,8 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg ca-c
     rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml ./
 COPY jcf_platform/ ./jcf_platform/
-RUN pip install --no-cache-dir . && useradd --system --no-create-home --uid 10001 appuser
+ARG INCLUDE_TEST_DEPS=0
+RUN pip install --no-cache-dir . && \
+    if [ "$INCLUDE_TEST_DEPS" = "1" ]; then pip install --no-cache-dir ".[test]"; fi && \
+    useradd --system --no-create-home --uid 10001 appuser
 USER 10001
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD python -c "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/health/live',timeout=3).read()" || exit 1
-CMD ["sh", "-c", "exec uvicorn jcf_platform.main:get_app --factory --host 0.0.0.0 --port 8080 --workers 2 --proxy-headers --forwarded-allow-ips "$TRUSTED_PROXY_IPS""]
+CMD ["sh", "-c", "exec uvicorn jcf_platform.main:get_app --factory --host 0.0.0.0 --port 8080 --workers 2 --proxy-headers --forwarded-allow-ips \"$TRUSTED_PROXY_IPS\""]
