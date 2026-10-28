@@ -77,8 +77,10 @@ python -m pytest tests -q
 python scripts/verify_sqlserver_ddl.py
 ```
 
-Local API integration tests exercise production route handlers against an isolated SQLite fixture;
-**they do not prove SQL Server 2019 compatibility, OIDC security, Linux deployment or AG failover**.
+Local API integration tests exercise production route handlers against an isolated SQLite fixture.
+GitHub Actions additionally builds the Linux container and executes governed Location/Section creation
+and lookup against an ephemeral **real SQL Server 2019 Express** instance (passed 28 October 2026).
+These are not proof of production IAM security, controlled Alembic upgrades, AG failover or DR.
 See [release gates](docs/RELEASE_GATES.md) for the remaining mandatory tests and approvals.
 
 ## Security and development notes
