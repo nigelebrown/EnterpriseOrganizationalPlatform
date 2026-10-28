@@ -19,6 +19,29 @@ It never force-drops an existing database, deletes a volume, or silently resets 
   backup is saved in the same persistent volume for migration recovery. Maintain independent/off-host
   backups for actual disaster recovery.
 
+## Docker image package-download connectivity
+
+The application container runs Debian 12, even when the host runs CentOS 9.
+When a restricted network blocks Docker egress on HTTP port 80, Debian's
+default apt mirrors fail and packages appear to be unavailable. The Dockerfile
+now converts its Debian `debian.sources` entries to **verified HTTPS (443)**
+before installing required packages.
+
+To check outbound HTTPS from the host and from Docker:
+
+```bash
+curl -I --max-time 15 https://deb.debian.org/debian/dists/bookworm/InRelease
+docker run --rm --entrypoint python python:3.12-slim-bookworm -c \
+  "import urllib.request; print(urllib.request.urlopen('https://deb.debian.org/debian/dists/bookworm/InRelease',timeout=20).status)"
+```
+
+If host HTTPS works but the container cannot connect, inspect Docker bridge
+NAT, DNS, enterprise egress firewall and proxy configuration. The image also
+needs HTTPS access to packages.microsoft.com and Python package indexes.
+Do not disable TLS validation, SELinux or firewalld to bypass network policy.
+The image must be rebuilt from the updated Git branch; repeat installation
+preserves existing settings and SQL Server data.
+
 ## CentOS Stream 9 — one-click command line setup
 
 On a CentOS Stream 9 x86_64 VM, clone the authenticated private GitHub development branch:
