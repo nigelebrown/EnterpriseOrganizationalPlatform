@@ -11,3 +11,6 @@ htmlcov/
 *.bak
 build/
 dist/
+
+# Local JCF CA files are deployment inputs, not committed source
+deploy/ca/*.crt

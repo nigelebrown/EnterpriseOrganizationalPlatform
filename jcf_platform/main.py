@@ -115,7 +115,7 @@ def create_app(database_url=None, *, engine=None):
     async def headers(request:Request,call_next):
         correlation=request.headers.get('x-correlation-id',str(uuid.uuid4()))[:80]
         request.state.correlation_id=correlation
-        if cfg['require_https'] and request.url.scheme!='https':
+        if cfg['require_https'] and request.url.scheme!='https' and not (request.url.path in ('/health/live','/health/ready') and request.client and request.client.host in ('127.0.0.1','::1')):
             return problem(400,'HTTPS_REQUIRED','TLS is required',correlation)
         response=await call_next(request)
         response.headers['X-Correlation-ID']=correlation

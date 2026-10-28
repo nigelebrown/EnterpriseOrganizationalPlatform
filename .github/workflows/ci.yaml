@@ -17,6 +17,8 @@ jobs:
         run: python -m pytest tests -q
       - name: Validate SQL Server 2019 DDL compilation
         run: python scripts/verify_sqlserver_ddl.py
+      - name: Validate one-click installer syntax and dry-run
+        run: bash -n install.sh && bash install.sh --dry-run --mode local-express
   # AG listener failover, SQL Server Express live tests, OIDC/AD and penetration tests require
   # JCF-controlled runners and secrets. They are *mandatory release gates*, not CI passes here.
   sql2019-express:
@@ -33,6 +35,18 @@ jobs:
           - 1433:1433
     steps:
       - uses: actions/checkout@v4
+      - name: Validate Docker Compose deployment configuration
+        run: |
+          python scripts/init_install_config.py /tmp/jcf-config
+          cat >/tmp/jcf-config/deployment.env <<'ENV'
+          JCF_IMAGE_TAG=ci
+          JCF_RUNTIME_ENV=/tmp/jcf-config/runtime.env
+          JCF_MIGRATE_ENV=/tmp/jcf-config/migration.env
+          JCF_SQL_ENV=/tmp/jcf-config/sqlserver.env
+          JCF_SETUP_ENV=/tmp/jcf-config/setup.env
+          JCF_APP_PORT=8080
+          ENV
+          docker compose --project-name jcf-enterprise --env-file /tmp/jcf-config/deployment.env -f deploy/compose.yaml config --quiet
       - name: Build Linux app container with Microsoft ODBC Driver 18
         run: docker build --build-arg INCLUDE_TEST_DEPS=1 -t jcf-platform-ci .
       - name: Initialize disposable database (CI only)
@@ -41,9 +55,24 @@ jobs:
             -e CI_EPHEMERAL_DB=YES -e CI_SQL_HOST=127.0.0.1,1433 \
             -e CI_SQL_SA_PASSWORD='CiOnly_StrongPass_2026!' \
             --entrypoint python jcf-platform-ci scripts/ci_create_sql_test_db.py
+      - name: Exercise local one-click SQL provisioning and verified native backup
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e CI_EPHEMERAL_DB=YES -e DB_HOST=127.0.0.1,1433 -e DB_NAME=JcfEnterpriseSetup_TEST \
+            -e MSSQL_SA_PASSWORD='CiOnly_StrongPass_2026!' \
+            -e JCF_APP_USER=jcf_ci_app -e JCF_APP_PASSWORD='Ci_App_StrongPass_2026!' \
+            -e JCF_MIGRATE_USER=jcf_ci_migrate -e JCF_MIGRATE_PASSWORD='Ci_Migrate_StrongPass_2026!' \
+            --entrypoint python jcf-platform-ci scripts/ci_verify_db_admin_sql2019.py
       - name: Run live SQL Server 2019 governed onboarding tests
         run: |
           docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
             -e ALLOW_DESTRUCTIVE_TEST_DDL=YES \
             -e TEST_SQLSERVER_URL='mssql+pyodbc://sa:CiOnly_StrongPass_2026!@127.0.0.1:1433/JcfEnterprise_TEST?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes' \
             --entrypoint python jcf-platform-ci scripts/sql2019_express_integration.py
+
+      - name: Verify actual Alembic installation and repeat upgrade on SQL Server 2019 Express
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e APP_ENV=development -e CI_EPHEMERAL_DB=YES \
+            -e DATABASE_URL='mssql+pyodbc://sa:CiOnly_StrongPass_2026!@127.0.0.1:1433/JcfEnterpriseMigration_TEST?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes' \
+            --entrypoint python jcf-platform-ci scripts/ci_verify_alembic_sql2019.py

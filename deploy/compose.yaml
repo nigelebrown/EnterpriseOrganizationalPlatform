@@ -1,27 +1,67 @@
+# Managed by install.sh. The SQL Server service is opt-in for a LOCAL test environment.
+name: jcf-enterprise
+x-app-image: &app-image jcf/enterprise-organizational-platform:${JCF_IMAGE_TAG:?Installer must set JCF_IMAGE_TAG}
 services:
   registry:
-    build: ..
-    image: jcf/enterprise-organizational-platform:local
+    image: *app-image
+    build:
+      context: ..
+      dockerfile: Dockerfile
     restart: unless-stopped
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    environment:
-      APP_ENV: production
-      DB_HOST: ${DB_HOST:?Required}
-      DB_NAME: ${DB_NAME:-JcfEnterpriseRegistry}
-      DB_USER: ${DB_USER:?Required}
-      DB_PASSWORD: ${DB_PASSWORD:?Required}
-      DB_AG_ENABLED: ${DB_AG_ENABLED:-false}
-      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:?Set actual trusted reverse-proxy IPs}
-      AUTH_ISSUER: ${AUTH_ISSUER:?Required}
-      AUTH_AUDIENCE: ${AUTH_AUDIENCE:?Required}
-      AUTH_JWKS_URL: ${AUTH_JWKS_URL:?Required}
-      ADMIN_OIDC_CLIENT_ID: ${ADMIN_OIDC_CLIENT_ID:?Required}
-      ADMIN_OIDC_AUTHORIZATION_ENDPOINT: ${ADMIN_OIDC_AUTHORIZATION_ENDPOINT:?Required}
-      ADMIN_OIDC_TOKEN_ENDPOINT: ${ADMIN_OIDC_TOKEN_ENDPOINT:?Required}
-      ADMIN_REDIRECT_URI: ${ADMIN_REDIRECT_URI:?Required}
+    env_file:
+      - ${JCF_RUNTIME_ENV:?Installer must set JCF_RUNTIME_ENV}
     ports:
-      - '127.0.0.1:8080:8080'
+      - '127.0.0.1:${JCF_APP_PORT:-8080}:8080'
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready',timeout=5).read()"]
+      interval: 20s
+      timeout: 8s
+      retries: 5
+      start_period: 35s
+    stop_grace_period: 45s
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    profiles: ['local-db']
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: 'Y'
+      MSSQL_PID: 'Express'
+    env_file:
+      - ${JCF_SQL_ENV:?Installer must set JCF_SQL_ENV}
+    volumes:
+      - sql2019_data:/var/opt/mssql
+    # No host SQL port is published; only the application network can reach it.
+    shm_size: 1gb
+    stop_grace_period: 90s
+  migrate:
+    image: *app-image
+    profiles: ['maintenance']
+    env_file:
+      - ${JCF_MIGRATE_ENV:?Installer must set JCF_MIGRATE_ENV}
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ['python']
+    command: ['-m', 'alembic', 'upgrade', 'head']
+    restart: 'no'
+  bootstrap:
+    image: *app-image
+    profiles: ['maintenance']
+    env_file:
+      - ${JCF_SETUP_ENV:?Installer must set JCF_SETUP_ENV}
+      - ${JCF_SQL_ENV:?Installer must set JCF_SQL_ENV}
+    read_only: true
+    tmpfs: ['/tmp:rw,noexec,nosuid,size=64m']
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    entrypoint: ['python']
+    command: ['scripts/db_admin.py', 'wait']
+    restart: 'no'
+volumes:
+  sql2019_data:

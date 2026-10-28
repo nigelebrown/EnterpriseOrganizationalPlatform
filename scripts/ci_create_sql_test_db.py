@@ -26,5 +26,6 @@ try:
     if major!=15 or 'Express' not in edition:
         raise SystemExit(f'Wrong SQL Server version/edition: {major} {edition}')
     connection.cursor().execute('CREATE DATABASE JcfEnterprise_TEST')
+    connection.cursor().execute('CREATE DATABASE JcfEnterpriseMigration_TEST')
     print('Created ephemeral JcfEnterprise_TEST on SQL Server 2019 Express')
 finally:connection.close()

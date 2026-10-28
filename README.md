@@ -20,23 +20,32 @@ entities. The browser administrator console uses enterprise OIDC Authorization C
 - OpenAPI JSON at `/api/openapi.json`; OIDC JWT scopes; structured `application/problem+json` errors.
 - SQLAlchemy SQL Server dialect, ODBC 18 TLS, Express direct and AG listener connection configuration.
 
-## Installation (Linux)
+## One-command installation and safe repeat upgrade (Linux)
 
-Requirements: Python 3.12+, Microsoft ODBC Driver 18 for SQL Server and an accessible SQL Server
-2019 instance (Express for development; properly licensed AG edition for production).
+From a fresh Ubuntu 22.04/24.04 or Debian 12 x86-64 VM after checkout:
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e '.[test]'
-# Configure DB and OIDC secrets via environment/vault, see .env.example.
-alembic upgrade head  # NEW EMPTY DATABASE ONLY
-uvicorn jcf_platform.main:get_app --factory --host 127.0.0.1 --port 8080
+sudo bash install.sh --mode local-express
 ```
 
-Configure a trusted reverse proxy for TLS termination with forwarding restricted to known proxy IPs.
-For containers use `docker compose -f deploy/compose.yaml up --build` after secure environment setup.
-The migration step is a separate, DBA-approved deployment operation; **do not** run create_all
-against existing production HRIS databases or let the web process migrate schemas.
+This bootstraps Docker if necessary, deploys an isolated persistent SQL Server **2019 Express**
+development container, creates separate application/migration SQL accounts, applies Alembic and
+starts the service on **127.0.0.1:8080**. It does not bypass enterprise authentication. Configure
+OIDC and a trusted HTTPS reverse proxy to make authenticated administration usable.
+
+After any later repository update:
+
+```bash
+git pull
+sudo bash install.sh
+```
+
+The installer keeps all `/etc/jcf-registry` secrets and persistent SQL data, takes a native SQL
+backup before migrations, validates database readiness and attempts an application-only rollback
+if startup fails. External SQL2019 AG mode is supported with separate runtime/migration credentials
+and a DBA-confirmed restore point; do **not** deploy an AG on SQL Express.
+
+Full instructions and safety constraints: [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
 ## SQL 2019 development vs AG
 
@@ -77,10 +86,8 @@ python -m pytest tests -q
 python scripts/verify_sqlserver_ddl.py
 ```
 
-Local API integration tests exercise production route handlers against an isolated SQLite fixture.
-GitHub Actions additionally builds the Linux container and executes governed Location/Section creation
-and lookup against an ephemeral **real SQL Server 2019 Express** instance (passed 28 October 2026).
-These are not proof of production IAM security, controlled Alembic upgrades, AG failover or DR.
+Local API integration tests exercise production route handlers against an isolated SQLite fixture;
+**they do not prove SQL Server 2019 compatibility, OIDC security, Linux deployment or AG failover**.
 See [release gates](docs/RELEASE_GATES.md) for the remaining mandatory tests and approvals.
 
 ## Security and development notes
@@ -93,27 +100,3 @@ See [release gates](docs/RELEASE_GATES.md) for the remaining mandatory tests and
 - Restrict `registry.restricted.read` to designated clients, not self-service onboarding.
 - Rate limits, web gateway hardening, complete HR workflows, real SQL acceptance tests and AG failover testing
   are required before release sign-off.
-
-## Idempotency and change feeds
-
-Write clients should send a unique `Idempotency-Key` (10–120 characters) when creating a
-ChangeRequest. A replay of the same actor, payload, action and reference returns the existing
-request; reusing the same key for another payload returns HTTP 409. The outbox change-feed
-cursor uses a monotonically increasing database sequence, not an offset or a timestamp.
-
-## Live database verification commands (JCF test infrastructure)
-
-```bash
-# Create a fresh isolated empty database, for example JcfEnterprise_TEST, on SQL2019 Express.
-export TEST_SQLSERVER_URL='mssql+pyodbc:///?odbc_connect=<URL-ENCODED-ODBC-CONNECTION-STRING>'
-export ALLOW_DESTRUCTIVE_TEST_DDL=YES
-python scripts/sql2019_express_integration.py
-
-# Against an approved AG *listener* (read-only diagnostic, no failover action):
-export DB_AG_ENABLED=true
-python scripts/ag_listener_readiness.py
-```
-
-The SQL2019 test script **creates and drops** platform tables and therefore refuses to operate
-against a non-TEST/DEV database or a database containing existing platform tables. The AG script
-only inspects connectivity; a real controlled failover/restore still requires JCF infrastructure.
