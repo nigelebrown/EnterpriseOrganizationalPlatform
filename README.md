@@ -71,6 +71,18 @@ are skipped unless test seed data are already present. On local Express you can
 opt out with `sudo bash install.sh --no-test-seed`. Repeat upgrades preserve data.
 See [installation guidance](docs/INSTALLATION.md#test-only-sample-data).
 
+## Check and resume an interrupted CentOS installation
+
+```bash
+cd /root/EnterpriseOrganizationalPlatform
+git pull --ff-only origin feat/initial-modular-platform
+bash scripts/doctor.sh --check   # diagnostics only
+bash scripts/doctor.sh --repair  # completes missing setup steps and verifies DB seed
+```
+
+The doctor refuses overlapping installations and preserves existing data and passwords.
+See [installation recovery](docs/INSTALLATION.md).
+
 ## SQL 2019 development vs AG
 
 - **Express 2019:** `DB_AG_ENABLED=false`, direct SQL hostname, TLS CA validation, max DB size 10 GB.
