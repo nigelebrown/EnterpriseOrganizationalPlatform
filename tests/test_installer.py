@@ -166,3 +166,20 @@ def test_debian_slim_dockerfile_uses_https_before_apt():
     assert 'https://packages.microsoft.com/debian/12/prod' in dockerfile
     assert 'Verify-Peer=false' not in dockerfile
     assert 'Verify-Host=false' not in dockerfile
+
+
+def test_repair_doctor_syntax_and_help():
+    doctor = ROOT / 'scripts' / 'doctor.sh'
+    assert doctor.is_file()
+    assert subprocess.run(['bash', '-n', str(doctor)]).returncode == 0
+    help_result = subprocess.run(['bash', str(doctor), '--help'],
+                                 capture_output=True, text=True)
+    assert help_result.returncode == 0
+    assert '--repair' in help_result.stdout and '--check' in help_result.stdout
+    script = doctor.read_text()
+    assert 'flock -n 9' in script
+    assert 'git -C "$ROOT" pull --ff-only' in script
+    assert 'scripts/seed_test_data.py --verify' in script
+    assert 'bash "$ROOT/install.sh" --mode local-express' in script
+    assert 'docker volume rm' not in script
+    assert 'docker compose down -v' not in script
