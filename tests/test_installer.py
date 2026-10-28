@@ -181,5 +181,6 @@ def test_repair_doctor_syntax_and_help():
     assert 'git -C "$ROOT" pull --ff-only' in script
     assert 'scripts/seed_test_data.py --verify' in script
     assert 'bash "$ROOT/install.sh" --mode local-express' in script
+    assert 'docker buildx version' in script
     assert 'docker volume rm' not in script
     assert 'docker compose down -v' not in script
