@@ -216,13 +216,16 @@ class ChangeRequest(Base):
     reference: Mapped[str] = mapped_column(String(160),nullable=False)
     status: Mapped[str] = mapped_column(String(24),default='SUBMITTED',nullable=False)
     requested_by: Mapped[str] = mapped_column(String(180),nullable=False)
-    idempotency_key: Mapped[str | None] = mapped_column(String(120),unique=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120))
     decided_by: Mapped[str | None] = mapped_column(String(180))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime,default=now,nullable=False)
     applied_at: Mapped[datetime | None] = mapped_column(DateTime)
     error: Mapped[str | None] = mapped_column(String(250))
-    __table_args__ = (CheckConstraint("status IN ('SUBMITTED','APPROVED','REJECTED','APPLIED')",name='ck_request_status'),)
+    __table_args__ = (CheckConstraint("status IN ('SUBMITTED','APPROVED','REJECTED','APPLIED')",name='ck_request_status'),
+                      Index('uq_idempotency_non_null','idempotency_key',unique=True,
+                            mssql_where=(idempotency_key.is_not(None)),
+                            sqlite_where=(idempotency_key.is_not(None))))
 
 class AuditEvent(Base):
     __tablename__='audit_event'

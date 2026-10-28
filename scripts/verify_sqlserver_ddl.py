@@ -7,5 +7,5 @@ for table in Base.metadata.sorted_tables:
     sql=str(CreateTable(table).compile(dialect=compiler))
     assert 'CREATE TABLE' in sql and not 'CREATE TABLE NONE' in sql
     for index in table.indexes:
-        assert 'CREATE INDEX' in str(CreateIndex(index).compile(dialect=compiler))
+        assert 'CREATE' in str(CreateIndex(index).compile(dialect=compiler)) and 'INDEX' in str(CreateIndex(index).compile(dialect=compiler))
 print(f'SQL Server DDL syntax compilation passed for {len(Base.metadata.tables)} tables (not executed).')
