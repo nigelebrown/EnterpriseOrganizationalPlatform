@@ -42,6 +42,29 @@ Do not disable TLS validation, SELinux or firewalld to bypass network policy.
 The image must be rebuilt from the updated Git branch; repeat installation
 preserves existing settings and SQL Server data.
 
+
+## Diagnose or resume a partial CentOS installation
+
+If an earlier run failed while downloading packages or building the application,
+**do not delete the existing SQL volume or /etc/jcf-registry files**.
+After the old installer has returned to the shell prompt:
+
+```bash
+cd /root/EnterpriseOrganizationalPlatform
+git pull --ff-only origin feat/initial-modular-platform
+bash scripts/doctor.sh --check
+bash scripts/doctor.sh --repair
+```
+
+The check inspects Docker Engine/Compose, installation mode, retained root-only
+config files, installed image tag, SQL Server Express container, app readiness,
+and an actual read-only verification of the synthetic fixture in SQL Server.
+Repair refuses a concurrent installer, requires the expected branch, fast-forwards
+source, and calls the **existing guarded one-click installer** only if needed.
+Its SQL volume, user credentials and data are preserved. On a production AG
+configuration, repair refuses to proceed without the DBA-controlled procedure.
+A completed application still requires configured OIDC and secure HTTPS ingress.
+
 ## CentOS Stream 9 — one-click command line setup
 
 On a CentOS Stream 9 x86_64 VM, clone the authenticated private GitHub development branch:
