@@ -19,3 +19,31 @@ jobs:
         run: python scripts/verify_sqlserver_ddl.py
   # AG listener failover, SQL Server Express live tests, OIDC/AD and penetration tests require
   # JCF-controlled runners and secrets. They are *mandatory release gates*, not CI passes here.
+  sql2019-express:
+    name: Real SQL Server 2019 Express on Linux
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2019-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'CiOnly_StrongPass_2026!'
+          MSSQL_PID: 'Express'
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Linux app container with Microsoft ODBC Driver 18
+        run: docker build -t jcf-platform-ci .
+      - name: Initialize disposable database (CI only)
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e CI_EPHEMERAL_DB=YES -e CI_SQL_HOST=127.0.0.1,1433 \
+            -e CI_SQL_SA_PASSWORD='CiOnly_StrongPass_2026!' \
+            --entrypoint python jcf-platform-ci scripts/ci_create_sql_test_db.py
+      - name: Run live SQL Server 2019 governed onboarding tests
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e ALLOW_DESTRUCTIVE_TEST_DDL=YES \
+            -e TEST_SQLSERVER_URL='mssql+pyodbc://sa:CiOnly_StrongPass_2026!@127.0.0.1:1433/JcfEnterprise_TEST?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes' \
+            --entrypoint python jcf-platform-ci scripts/sql2019_express_integration.py
