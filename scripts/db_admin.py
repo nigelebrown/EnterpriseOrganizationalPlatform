@@ -75,8 +75,19 @@ def backup():
         if not c.cursor().execute('SELECT DB_ID(?)', db).fetchval():
             raise RuntimeError('Missing database; backup aborted')
         # Local SQL data is on a persistent named volume, so the backup survives container replacement.
-        c.cursor().execute('BACKUP DATABASE ' + identifier(db) + ' TO DISK = ? WITH INIT, CHECKSUM', location)
-        c.cursor().execute('RESTORE VERIFYONLY FROM DISK = ? WITH CHECKSUM', location)
+        # pyodbc can cancel SQL BACKUP when a transient Cursor is discarded.
+        # Retain the cursor and consume *all* TDS result sets before VERIFYONLY.
+        for statement in (
+            'BACKUP DATABASE ' + identifier(db) + ' TO DISK = ? WITH INIT, CHECKSUM',
+            'RESTORE VERIFYONLY FROM DISK = ? WITH CHECKSUM',
+        ):
+            cursor = c.cursor()
+            try:
+                cursor.execute(statement, location)
+                while cursor.nextset():
+                    pass
+            finally:
+                cursor.close()
     print('Verified SQL backup:', location)
 
 if __name__ == '__main__':
