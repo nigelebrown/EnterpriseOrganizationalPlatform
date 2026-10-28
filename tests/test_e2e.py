@@ -284,3 +284,20 @@ def test_openapi_contract_declares_bearer(client):
     contract=client.get('/api/openapi.json').json()
     assert 'OIDC_Bearer' in contract['components']['securitySchemes']
     assert contract['paths']['/api/v1/registry/locations']['get']['security']
+
+def test_administration_search_sources(client,service_client):
+    l=getid(service_client('LOCATION_CREATE',loc('DIV-A')))
+    d=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    ls=getid(service_client('SECTION_ATTACH',attach(l,d)))
+    defs=client.get('/api/v1/registry/section-definitions?search=CIB').json()['items']
+    assert defs[0]['sectionDefinitionId']==d
+    nodes=client.get('/api/v1/registry/org-nodes?search=Division').json()['items']
+    assert {x['orgNodeId'] for x in nodes}=={l,ls}
+
+def test_facility_lookup_sources(client,service_client):
+    l=getid(service_client('LOCATION_CREATE',loc('A')))
+    b=getid(service_client('BUILDING_CREATE',dict(code='BUILD-A',name='North Block',
+           address='Street 1',parish='Kingston',validFrom='2020-01-01')))
+    lb=getid(service_client('LOCATION_BUILDING',dict(locationId=l,buildingId=b,validFrom='2020-01-01')))
+    assert client.get('/api/v1/facilities/buildings?search=North').json()['items'][0]['buildingId']==b
+    assert client.get(f'/api/v1/facilities/location-building-links?locationId={l}').json()['items'][0]['locationBuildingId']==lb

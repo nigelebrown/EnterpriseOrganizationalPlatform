@@ -65,14 +65,40 @@ function makeTable(items,pane=$('#results')){pane.replaceChildren();if(!items||!
  let table=document.createElement('table'),thead=document.createElement('thead'),tr=document.createElement('tr');
  const columns=Object.keys(items[0]);for(const col of columns)tr.append(text('th',col));thead.append(tr);table.append(thead);
  let body=document.createElement('tbody');for(const item of items){let row=document.createElement('tr');for(const col of columns){let td=text('td',typeof item[col]==='object'?JSON.stringify(item[col]):item[col]);row.append(td)}body.append(row)}table.append(body);pane.append(table);}
+const lookupRoutes={locationId:'/api/v1/registry/locations',childId:'/api/v1/registry/locations',
+ parentId:'/api/v1/registry/locations',sectionDefinitionId:'/api/v1/registry/section-definitions',
+ definitionId:'/api/v1/registry/section-definitions',sourceId:'/api/v1/registry/org-nodes',
+ authorityId:'/api/v1/registry/org-nodes',sectionId:'/api/v1/registry/org-nodes',
+ buildingId:'/api/v1/facilities/buildings',locationBuildingId:'/api/v1/facilities/location-building-links'};
+function addLookup(label,name){
+ const route=lookupRoutes[name];if(!route)return null;
+ const search=document.createElement('input');search.type='search';search.placeholder='Search '+name+' by name or code';
+ const sel=document.createElement('select');sel.id='f_'+name;sel.required=true;
+ let clock;const load=async()=>{if(!token)return;try{
+   let url=route+(route.includes('?')?'&':'?')+'search='+encodeURIComponent(search.value)+'&limit=200';
+   if(name==='sectionId') {const selected=$('#f_locationId')?.value;
+     if(!selected){sel.replaceChildren(new Option('Select Location first',''));return}
+     url='/api/v1/registry/locations/'+selected+'/sections';}
+   let result=await api(url);const prev=sel.value;sel.replaceChildren(new Option('Select '+name,'',true,true));
+   for(const x of result.items){const id=x.locationId||x.sectionId||x.sectionDefinitionId||x.orgNodeId||x.buildingId||x.locationBuildingId;
+    const nameText=x.name||x.label||x.code||x.locationBuildingId;
+    sel.append(new Option(nameText+' ('+(x.code||x.kind||id.slice(0,8))+')',id));}
+   if([...sel.options].some(x=>x.value===prev))sel.value=prev;
+ }catch(e){alertMsg(e.message)}};
+ search.oninput=()=>{clearTimeout(clock);clock=setTimeout(load,250)};
+ sel.reload=load;label.append(search,sel);load();return sel;
+}
 function fieldForm(action){const container=$('#fields');container.replaceChildren();let grid=document.createElement('div');grid.className='fieldgrid';
  for(const [name,type,options] of schema[action]||[]){let label=text('label',name);label.htmlFor='f_'+name;let inp;
  if(type==='select'){inp=document.createElement('select');for(const opt of options.split('|')){let el=document.createElement('option');el.value=opt;el.textContent=opt;inp.append(el)}}
  else if(type==='json'){inp=document.createElement('textarea');inp.rows=5;inp.placeholder='[{"action":"LOCATION_CREATE","payload":{...}}]'}
+ else if(type==='uuid'&&lookupRoutes[name]){inp=addLookup(label,name)}
  else{inp=document.createElement('input');inp.type=type==='uuid'?'text':type;inp.placeholder=type==='uuid'?'UUID':name;
   if(type==='date'&&name==='validFrom')inp.value=new Date().toISOString().slice(0,10);
   if(type==='checkbox')inp.checked=name==='isPrimary';if(type==='number')inp.step='any';}
- inp.id='f_'+name;label.append(inp);grid.append(label)}container.append(grid);}
+ if(inp)inp.id='f_'+name;if(inp && !label.contains(inp))label.append(inp);grid.append(label)}container.append(grid);
+ const locationField=container.querySelector('#f_locationId'),sectionField=container.querySelector('#f_sectionId');
+ if(locationField&&sectionField)locationField.addEventListener('change',()=>{sectionField.value='';sectionField.reload?.()});}
 function setupForm(){let sel=$('#action');sel.replaceChildren();for(const action of actions[current]||[]){let opt=document.createElement('option');opt.value=action;opt.textContent=action.replaceAll('_',' ');sel.append(opt)}
  sel.onchange=()=>fieldForm(sel.value);fieldForm(sel.value);$('#changeForm').parentElement.hidden=actions[current].length===0;}
 async function loadView(){let [title,desc]=views[current];$('#view-title').textContent=title;$('#view-description').textContent=desc;setupForm();

@@ -160,6 +160,43 @@ def create_app(database_url=None, *, engine=None):
         return {'locationId':str(location_id),'asOf':str(asOf or date.today()),
                 'items':s.section_options(db,location_id,asOf or date.today(),
                                           'registry.restricted.read' in claims['_scopes'],search)}
+    @app.get('/api/v1/registry/section-definitions',tags=['Registry'])
+    def section_definitions(asOf:date|None=None,search:str='',limit:int=Query(200,ge=1,le=200),
+                            claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
+        at=asOf or date.today()
+        definitions=[d for d in db.scalars(select(m.SectionDefinition).order_by(m.SectionDefinition.code)).all() if s.asof(d,at)]
+        names=s.names_for(db,m.SectionName,'definition_id',[d.id for d in definitions],at)
+        q=search.strip().casefold()
+        return {'items':[{'sectionDefinitionId':str(d.id),'code':d.code,'name':names[d.id]}
+                         for d in definitions if d.id in names and (not q or q in d.code.casefold() or q in names[d.id].casefold())][:limit]}
+    @app.get('/api/v1/registry/org-nodes',tags=['Registry'])
+    def org_nodes(asOf:date|None=None,search:str='',limit:int=Query(200,ge=1,le=200),
+                  claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
+        at=asOf or date.today();allowed='registry.restricted.read' in claims['_scopes']
+        entries=[]
+        locs=db.scalars(select(m.Location).order_by(m.Location.code)).all()
+        names=s.names_for(db,m.LocationName,'location_id',[x.id for x in locs],at)
+        for loc in locs:
+            if not s.asof(loc,at) or (not allowed and loc.visibility!='STANDARD'):continue
+            if loc.id in names:entries.append({'orgNodeId':str(loc.id),'label':names[loc.id],'kind':'LOCATION'})
+            for sec in s.section_options(db,loc.id,at,allowed):
+                entries.append({'orgNodeId':sec['sectionId'],'label':sec['name']+' — '+names.get(loc.id,loc.code),
+                                'kind':'LOCATION_SECTION'})
+        q=search.strip().casefold()
+        return {'items':[e for e in entries if not q or q in e['label'].casefold()][:limit]}
+    @app.get('/api/v1/facilities/buildings',tags=['Facilities'])
+    def buildings(asOf:date|None=None,search:str='',limit:int=Query(200,ge=1,le=200),
+                  claims=Depends(permission('facilities.read')),db:Session=Depends(db_session)):
+        at=asOf or date.today();q=search.strip().casefold()
+        rows=db.scalars(select(m.Building).order_by(m.Building.code)).all()
+        return {'items':[{'buildingId':str(b.id),'name':b.name,'code':b.code} for b in rows
+                         if s.asof(b,at) and (not q or q in b.name.casefold() or q in b.code.casefold())][:limit]}
+    @app.get('/api/v1/facilities/location-building-links',tags=['Facilities'])
+    def location_building_links(locationId:UUID|None=None,claims=Depends(permission('facilities.read')),
+                                db:Session=Depends(db_session)):
+        links=db.scalars(select(m.LocationBuilding).limit(200)).all()
+        return {'items':[{'locationBuildingId':str(link.id),'locationId':str(link.location_id),
+                          'buildingId':str(link.building_id)} for link in links if locationId is None or link.location_id==locationId]}
     @app.post('/api/v1/registry/posting-selections/validate',tags=['Registry'])
     def validate(selection:PostingSelection,claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
         s.validate_pair(db,selection.locationId,selection.sectionId,selection.effectiveOn,
