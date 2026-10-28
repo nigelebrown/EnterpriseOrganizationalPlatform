@@ -55,6 +55,7 @@ check(){
  ok 'Docker CLI installed'
  if ! docker compose version >/dev/null 2>&1; then bad 'Docker Compose missing'; say "RESULT: $errors incomplete"; return; fi
  ok 'Docker Compose installed'
+ docker buildx version >/dev/null 2>&1 && ok 'Docker Buildx installed' || bad 'Docker Buildx plugin missing'
  if ! docker info >/dev/null 2>&1; then bad 'Docker daemon not running'; say "RESULT: $errors incomplete"; return; fi
  ok 'Docker daemon running'
  sql="$(docker ps --filter label=com.docker.compose.project=jcf-enterprise --filter label=com.docker.compose.service=sqlserver --format '{{.ID}}' | head -1)"
