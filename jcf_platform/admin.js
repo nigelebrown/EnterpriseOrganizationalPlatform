@@ -10,8 +10,8 @@ const views={locations:['Locations','Approved organizational formations and sear
  personnel:['Personnel & Postings','Only official verified assignments become HRIS postings'],
  approval:['Change Approvals','Four-eyes validation and independent decision'],
  import:['Bulk Excel / CSV Import','Preview spreadsheet records; changes still require approval']};
-const actions={locations:['LOCATION_CREATE','LOCATION_RENAME','LOCATION_PARENT','LOCATION_ALIAS'],
- sections:['SECTION_DEFINE','SECTION_ALIAS'],mappings:['SECTION_ATTACH'],reporting:['REPORTING_EDGE'],
+const actions={locations:['LOCATION_CREATE','LOCATION_RENAME','LOCATION_RETIRE','LOCATION_PARENT','LOCATION_PARENT_CLOSE','LOCATION_ALIAS'],
+ sections:['SECTION_DEFINE','SECTION_RENAME','SECTION_ALIAS','SECTION_RETIRE'],mappings:['SECTION_ATTACH'],reporting:['REPORTING_EDGE'],
  facilities:['BUILDING_CREATE','LOCATION_BUILDING','SECTION_BUILDING'],contacts:['CONTACT_ASSIGN'],
  personnel:['PERSONNEL_CREATE','POSTING_CREATE','LEAVE_REQUEST'],approval:[],import:['BATCH_REGISTER']};
 const schema={
@@ -19,6 +19,10 @@ const schema={
  SECTION_DEFINE:[['code','text'],['name','text'],['validFrom','date'],['validTo','date']],
  SECTION_ATTACH:[['locationId','uuid'],['sectionDefinitionId','uuid'],['validFrom','date'],['validTo','date'],['visibility','select','STANDARD|RESTRICTED'],['isDefault','checkbox']],
  LOCATION_RENAME:[['locationId','uuid'],['name','text'],['effectiveFrom','date']],
+ LOCATION_RETIRE:[['locationId','uuid'],['effectiveFrom','date']],
+ SECTION_RETIRE:[['sectionId','uuid'],['effectiveFrom','date']],
+ SECTION_RENAME:[['sectionDefinitionId','uuid'],['name','text'],['effectiveFrom','date']],
+ LOCATION_PARENT_CLOSE:[['relationshipId','uuid'],['effectiveFrom','date']],
  LOCATION_PARENT:[['childId','uuid'],['parentId','uuid'],['validFrom','date'],['validTo','date']],
  LOCATION_ALIAS:[['locationId','uuid'],['alias','text']], SECTION_ALIAS:[['definitionId','uuid'],['alias','text']],
  REPORTING_EDGE:[['sourceId','uuid'],['authorityId','uuid'],['relationType','select','LOCAL|FUNCTIONAL|OPERATIONAL|ADMINISTRATIVE'],['scope','text'],['validFrom','date'],['validTo','date']],
@@ -57,7 +61,7 @@ async function authCallback(){const p=new URLSearchParams(location.search);if(!p
 async function api(path,opts={}){if(!token)throw Error('Sign in required');
  const response=await fetch(path,{...opts,headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json',...(opts.headers||{})}});
  let result=await response.json();if(!response.ok)throw Error(result.code+': '+result.detail);return result;}
-function makeTable(items){const pane=$('#results');pane.replaceChildren();if(!items||!items.length){pane.append(text('p','No matching records.'));return}
+function makeTable(items,pane=$('#results')){pane.replaceChildren();if(!items||!items.length){pane.append(text('p','No matching records.'));return}
  let table=document.createElement('table'),thead=document.createElement('thead'),tr=document.createElement('tr');
  const columns=Object.keys(items[0]);for(const col of columns)tr.append(text('th',col));thead.append(tr);table.append(thead);
  let body=document.createElement('tbody');for(const item of items){let row=document.createElement('tr');for(const col of columns){let td=text('td',typeof item[col]==='object'?JSON.stringify(item[col]):item[col]);row.append(td)}body.append(row)}table.append(body);pane.append(table);}
@@ -85,7 +89,7 @@ async function loadView(){let [title,desc]=views[current];$('#view-title').textC
    const select=document.createElement('select');select.append(new Option('Select a Location',''));
    for(const l of locs)select.append(new Option(l.name+' ('+l.code+')',l.locationId));pane.append(select);
    select.onchange=async()=>{if(!select.value)return;const r=await api('/api/v1/registry/locations/'+select.value+'/sections');
-    [...pane.querySelectorAll('table,p')].forEach(x=>x.remove());let div=document.createElement('div');pane.append(div);makeTable(r.items)};
+    [...pane.querySelectorAll('table,p')].forEach(x=>x.remove());let div=document.createElement('div');pane.append(div);makeTable(r.items,div)};
   } else if(current==='import'){
    const pane=$('#results');pane.replaceChildren();let file=document.createElement('input');file.type='file';file.accept='.csv,.xlsx';pane.append(file);
    pane.append(button('Preview import',async()=>{if(!file.files[0])return;let form=new FormData();form.append('file',file.files[0]);

@@ -216,6 +216,7 @@ class ChangeRequest(Base):
     reference: Mapped[str] = mapped_column(String(160),nullable=False)
     status: Mapped[str] = mapped_column(String(24),default='SUBMITTED',nullable=False)
     requested_by: Mapped[str] = mapped_column(String(180),nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120),unique=True)
     decided_by: Mapped[str | None] = mapped_column(String(180))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime,default=now,nullable=False)

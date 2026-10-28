@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from uuid import UUID, uuid4
 from sqlalchemy import select, text, or_, func
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from . import models as m
 
 class DomainError(Exception):
@@ -74,7 +75,7 @@ def location_options(db, at, q='', restricted=False):
             for l in locs if l.id in names and (not query or query in l.code.casefold() or query in names[l.id].casefold()
                                                or any(query in a for a in aliases.get(l.id,set())))]
 
-def section_options(db, location_id, at, restricted=False):
+def section_options(db, location_id, at, restricted=False, search=''):
     at=day(at)
     loc=get(db,m.Location,location_id)
     require(asof(loc,at) and loc.selectable and (restricted or loc.visibility=='STANDARD'),
@@ -83,9 +84,17 @@ def section_options(db, location_id, at, restricted=False):
     secs=[s for s in secs if asof(s,at) and (restricted or s.visibility=='STANDARD')]
     defs={d.id:d for d in db.scalars(select(m.SectionDefinition)).all() if asof(d,at)}
     name=names_for(db,m.SectionName,'definition_id',list(defs),at)
-    return [{'sectionId':str(s.id),'sectionDefinitionId':str(s.definition_id),'locationId':str(s.location_id),
+    items=[{'sectionId':str(s.id),'sectionDefinitionId':str(s.definition_id),'locationId':str(s.location_id),
              'code':defs[s.definition_id].code,'name':name[s.definition_id],'isDefault':s.is_default}
             for s in sorted(secs,key=lambda s: (not s.is_default,str(s.id))) if s.definition_id in defs and s.definition_id in name]
+    if search.strip():
+        q=search.strip().casefold()
+        aliases={}
+        for alias in db.scalars(select(m.SectionAlias)).all():
+            aliases.setdefault(alias.definition_id,set()).add(alias.normalized_alias)
+        items=[x for x in items if q in x['name'].casefold() or q in x['code'].casefold() or
+               any(q in value for value in aliases.get(UUID(x['sectionDefinitionId']),set()))]
+    return items
 
 def _node(db, key, kind):
     node=get(db,m.OrgNode,key)
@@ -108,9 +117,21 @@ def _change(db, action, p):
         rows=p.get('operations',[])
         require(0 < len(rows) <= 500,'BATCH_SIZE','Import must contain 1 to 500 operations',400)
         ids=[]
-        for item in rows:
-            require(item.get('action')!='BATCH_REGISTER','INVALID_BATCH','Nested batches not allowed',400)
-            ids.append(_change(db,item['action'],item['payload']))
+        # Canonical definitions and Locations first, then mappings; import row order is irrelevant.
+        order={'LOCATION_CREATE':0,'SECTION_DEFINE':1,'LOCATION_ALIAS':2,'SECTION_ALIAS':2,'SECTION_ATTACH':3,'SECTION_ATTACH_BY_CODE':3}
+        for item in sorted(rows,key=lambda x:order.get(x.get('action'),99)):
+            require(item.get('action') in order,
+                    'INVALID_BATCH','Batch import is limited to Registry master-data operations',403)
+            payload=dict(item['payload'])
+            action=item['action']
+            if action=='SECTION_ATTACH_BY_CODE':
+                loc=db.scalar(select(m.Location).where(m.Location.code==payload.pop('locationCode')))
+                defin=db.scalar(select(m.SectionDefinition).where(m.SectionDefinition.code==payload.pop('sectionCode')))
+                require(loc is not None and defin is not None,'IMPORT_REFERENCE_MISSING',
+                        'Mapping references a missing Location or Section code',422)
+                payload['locationId']=str(loc.id);payload['sectionDefinitionId']=str(defin.id)
+                action='SECTION_ATTACH'
+            ids.append(_change(db,action,payload))
         return ids[0]
     if a=='LOCATION_CREATE':
         start,end=_range(p)
@@ -156,6 +177,55 @@ def _change(db, action, p):
         require(not any(n.valid_from>=at and n is not current for n in ns),'FUTURE_NAME_EXISTS','Resolve future names first',409)
         previous_end=current.valid_to;current.valid_to=at
         db.add(m.LocationName(location_id=l.id,name=p['name'].strip(),valid_from=at,valid_to=previous_end));return l.id
+    if a=='SECTION_RENAME':
+        defin=get(db,m.SectionDefinition,p['sectionDefinitionId']);at=day(p['effectiveFrom'])
+        require(asof(defin,at),'INVALID_DATE','Section definition not effective at rename date')
+        ns=db.scalars(select(m.SectionName).where(m.SectionName.definition_id==defin.id)).all()
+        current=next((n for n in ns if asof(n,at)),None)
+        require(current is not None and at>current.valid_from,'INVALID_DATE','Rename requires later effective date')
+        require(not any(n.valid_from>=at and n is not current for n in ns),'FUTURE_NAME_EXISTS','Resolve future names first',409)
+        prior=current.valid_to;current.valid_to=at
+        db.add(m.SectionName(definition_id=defin.id,name=p['name'].strip(),valid_from=at,valid_to=prior))
+        return defin.id
+    if a=='SECTION_RETIRE':
+        sec=get(db,m.LocationSection,p['sectionId']);at=day(p['effectiveFrom'])
+        require(at>sec.valid_from and (sec.valid_to is None or at<sec.valid_to),
+                'INVALID_DATE','Section retirement outside valid period')
+        has_postings=db.scalars(select(m.Posting).where(m.Posting.section_id==sec.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in has_postings),
+                'ACTIVE_POSTINGS','Transfer or close affected personnel postings before retirement',409)
+        occupancies=db.scalars(select(m.SectionBuilding).where(m.SectionBuilding.section_id==sec.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in occupancies),
+                'ACTIVE_OCCUPANCY','Close Section building occupancy before retirement',409)
+        sec.valid_to=at
+        return sec.id
+    if a=='LOCATION_RETIRE':
+        loc=get(db,m.Location,p['locationId']);at=day(p['effectiveFrom'])
+        require(at>loc.valid_from and (loc.valid_to is None or at<loc.valid_to),
+                'INVALID_DATE','Location retirement outside valid period')
+        children=db.scalars(select(m.LocationParent)).all()
+        require(not any((x.child_id==loc.id or x.parent_id==loc.id) and (x.valid_to is None or x.valid_to>at)
+                        for x in children),'ACTIVE_HIERARCHY','Close affected parent relationships before retirement',409)
+        secs=db.scalars(select(m.LocationSection).where(m.LocationSection.location_id==loc.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in secs),
+                'ACTIVE_SECTIONS','Close or transfer Section/Units before retirement',409)
+        posts=db.scalars(select(m.Posting).where(m.Posting.location_id==loc.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in posts),
+                'ACTIVE_POSTINGS','Transfer all posted personnel before retirement',409)
+        occupancies=db.scalars(select(m.LocationBuilding).where(m.LocationBuilding.location_id==loc.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in occupancies),
+                'ACTIVE_OCCUPANCY','Close location building occupancy before retirement',409)
+        loc.valid_to=at
+        names=db.scalars(select(m.LocationName).where(m.LocationName.location_id==loc.id)).all()
+        for n in names:
+            if asof(n,at):n.valid_to=at
+        return loc.id
+    if a=='LOCATION_PARENT_CLOSE':
+        edge=get(db,m.LocationParent,p['relationshipId']);at=day(p['effectiveFrom'])
+        require(at>edge.valid_from and (edge.valid_to is None or at<edge.valid_to),
+                'INVALID_DATE','Closing date must follow start and precede current end')
+        edge.valid_to=at
+        return edge.id
     if a=='LOCATION_PARENT':
         start,end=_range(p)
         child=get(db,m.Location,p['childId']);parent=get(db,m.Location,p['parentId'])
@@ -276,12 +346,25 @@ def _change(db, action, p):
         db.add(row);db.flush();return row.id
     raise DomainError('UNSUPPORTED_COMMAND','Unsupported change type',400)
 
-def create_request(db,action,payload,reference,actor):
+def create_request(db,action,payload,reference,actor,idempotency_key=None):
     require(len(reference.strip())>=3,'REFERENCE_REQUIRED','Authority/reference required')
-    row=m.ChangeRequest(action=action,payload=payload,reference=reference,requested_by=actor)
+    if idempotency_key:
+        require(10<=len(idempotency_key)<=120,'INVALID_IDEMPOTENCY_KEY','Idempotency key length invalid',400)
+        previous=db.scalar(select(m.ChangeRequest).where(m.ChangeRequest.idempotency_key==idempotency_key))
+        if previous:
+            require(previous.action==action and previous.payload==payload and previous.reference==reference
+                    and previous.requested_by==actor,'IDEMPOTENCY_CONFLICT',
+                    'Idempotency key already used for different change',409)
+            return previous
+    row=m.ChangeRequest(action=action,payload=payload,reference=reference,requested_by=actor,
+                        idempotency_key=idempotency_key)
     db.add(row);db.commit();db.refresh(row);return row
 
 def decide_request(db,request_id,decision,actor,correlation_id):
+    if db.bind.dialect.name=='mssql':
+        db.connection(execution_options={'isolation_level':'SERIALIZABLE'})
+        db.execute(text("EXEC sp_getapplock @Resource=:key, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000"),
+                   {'key':'JCF_CHANGE_'+str(request_id)})
     row=get(db,m.ChangeRequest,request_id)
     require(row.status=='SUBMITTED','INVALID_STATE','Request already decided',409)
     require(actor != row.requested_by,'SELF_APPROVAL','Requester cannot approve own change',403)
@@ -315,6 +398,9 @@ def apply_request(db,request_id,actor,correlation_id):
         db.add(m.OutboxEvent(kind=row.action,aggregate_id=entity_id,
                              payload={'id':str(entity_id),'action':row.action,'changeRequestId':str(row.id)}))
         db.commit();return entity_id
+    except IntegrityError:
+        db.rollback()
+        raise DomainError('DATABASE_CONSTRAINT','Conflicting value or invalid database relationship',409)
     except Exception:
         db.rollback()
         raise

@@ -12,9 +12,11 @@ from pathlib import Path
 from uuid import UUID
 import jwt
 from jwt import PyJWKClient
-from fastapi import FastAPI, Depends, HTTPException, Header, Request, Response, UploadFile, File, Query
+from fastapi import FastAPI, Depends, HTTPException, Header, Request, Response, UploadFile, File, Query, Security
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select, text, and_, or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -35,16 +37,19 @@ class ImportOperation(BaseModel):
     action: str
     payload: dict
 
+bearer_scheme=HTTPBearer(auto_error=False,scheme_name='OIDC_Bearer')
+
 @lru_cache
 def jwk_client(url):return PyJWKClient(url,cache_jwk_set=True,lifespan=300)
 
-def _principal(request:Request):
-    raw=request.headers.get('authorization','')
-    if not raw.startswith('Bearer '):raise HTTPException(status_code=401,detail='Bearer access token required',headers={'WWW-Authenticate':'Bearer'})
+def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Security(bearer_scheme)):
+    if credentials is None or credentials.scheme.lower()!='bearer':
+        raise HTTPException(status_code=401,detail='Bearer access token required',headers={'WWW-Authenticate':'Bearer'})
+    raw=credentials.credentials
     settings=request.app.state.settings
     try:
-        signing_key=jwk_client(settings['jwks']).get_signing_key_from_jwt(raw[7:]).key
-        claims=jwt.decode(raw[7:],signing_key,algorithms=['RS256','ES256'],audience=settings['audience'],
+        signing_key=jwk_client(settings['jwks']).get_signing_key_from_jwt(raw).key
+        claims=jwt.decode(raw,signing_key,algorithms=['RS256','ES256'],audience=settings['audience'],
                           issuer=settings['issuer'],options={'require':['exp','iss','aud','sub']},leeway=30)
     except Exception:
         raise HTTPException(status_code=401,detail='Invalid access token',headers={'WWW-Authenticate':'Bearer'})
@@ -56,6 +61,8 @@ def _principal(request:Request):
 ACTION_DOMAIN = {
   'LOCATION_CREATE':'registry','SECTION_DEFINE':'registry','SECTION_ATTACH':'registry',
   'LOCATION_RENAME':'registry','LOCATION_PARENT':'registry','LOCATION_ALIAS':'registry',
+  'LOCATION_RETIRE':'registry','SECTION_RETIRE':'registry','SECTION_RENAME':'registry',
+  'LOCATION_PARENT_CLOSE':'registry',
   'SECTION_ALIAS':'registry','BATCH_REGISTER':'registry',
   'REPORTING_EDGE':'reporting',
   'BUILDING_CREATE':'facilities','LOCATION_BUILDING':'facilities','SECTION_BUILDING':'facilities',
@@ -125,6 +132,9 @@ def create_app(database_url=None, *, engine=None):
     @app.exception_handler(s.DomainError)
     async def domain_error(request,ex):
         return problem(ex.status,ex.code,ex.message,request.state.correlation_id)
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request,ex):
+        return problem(422,'INVALID_REQUEST','Request failed schema validation',request.state.correlation_id)
     @app.exception_handler(HTTPException)
     async def http_error(request,ex):
         return problem(ex.status_code,'HTTP_'+str(ex.status_code),str(ex.detail),request.state.correlation_id)
@@ -145,11 +155,11 @@ def create_app(database_url=None, *, engine=None):
         return {'asOf':str(asOf or date.today()),'items':rows[cursor:cursor+limit],
                 'nextCursor':str(cursor+limit) if len(rows)>cursor+limit else None}
     @app.get('/api/v1/registry/locations/{location_id}/sections',tags=['Registry'])
-    def sections(location_id:UUID,asOf:date|None=None,claims=Depends(permission('registry.read')),
+    def sections(location_id:UUID,asOf:date|None=None,search:str='',claims=Depends(permission('registry.read')),
                  db:Session=Depends(db_session)):
         return {'locationId':str(location_id),'asOf':str(asOf or date.today()),
                 'items':s.section_options(db,location_id,asOf or date.today(),
-                                          'registry.restricted.read' in claims['_scopes'])}
+                                          'registry.restricted.read' in claims['_scopes'],search)}
     @app.post('/api/v1/registry/posting-selections/validate',tags=['Registry'])
     def validate(selection:PostingSelection,claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
         s.validate_pair(db,selection.locationId,selection.sectionId,selection.effectiveOn,
@@ -176,7 +186,10 @@ def create_app(database_url=None, *, engine=None):
         edges=db.scalars(select(m.ReportingEdge).where(m.ReportingEdge.source_id==node_id)).all()
         return {'orgNodeId':str(node_id),'asOf':str(at),'authorities':[
             {'authorityOrgNodeId':str(e.authority_id),'type':e.relation_type,'scope':e.scope}
-            for e in edges if s.asof(e,at)]}
+            for e in edges if s.asof(e,at) and (
+              'registry.restricted.read' in claims['_scopes'] or not (
+                (db.get(m.Location,e.authority_id) or db.get(m.LocationSection,e.authority_id)) and
+                (db.get(m.Location,e.authority_id) or db.get(m.LocationSection,e.authority_id)).visibility=='RESTRICTED'))]}
     @app.get('/api/v1/registry/locations/{location_id}/buildings',tags=['Facilities'])
     def location_buildings(location_id:UUID,asOf:date|None=None,claims=Depends(permission('facilities.read')),
                            db:Session=Depends(db_session)):
@@ -204,6 +217,11 @@ def create_app(database_url=None, *, engine=None):
         at=asOf or date.today();kind=entityKind.upper()
         if kind=='PERSONNEL' and 'contacts.personnel.read' not in claims['_scopes']:
             raise s.DomainError('FORBIDDEN','Personnel contact access required',403)
+        owner_class={'LOCATION':m.Location,'LOCATION_SECTION':m.LocationSection}.get(kind)
+        if owner_class is not None:
+            owner=s.get(db,owner_class,entityId)
+            if owner.visibility=='RESTRICTED' and 'registry.restricted.read' not in claims['_scopes']:
+                raise s.DomainError('NOT_FOUND','Contact entity not available',404)
         rows=db.scalars(select(m.ContactAssignment).where(m.ContactAssignment.entity_kind==kind,
                              m.ContactAssignment.entity_id==entityId)).all()
         visible=[]
@@ -228,9 +246,10 @@ def create_app(database_url=None, *, engine=None):
                  m.LeaveRequest.personnel_id==person_id)).all()]}
 
     @app.post('/api/v1/governance/requests',status_code=201,tags=['Governance'])
-    def submit(body:SubmitChange,claims=Depends(_principal),db:Session=Depends(db_session)):
+    def submit(body:SubmitChange,idempotency_key:str|None=Header(None,alias='Idempotency-Key'),
+               claims=Depends(_principal),db:Session=Depends(db_session)):
         require_action_scope(body.action,'write',claims)
-        row=s.create_request(db,body.action,body.payload,body.reference,claims['sub'])
+        row=s.create_request(db,body.action,body.payload,body.reference,claims['sub'],idempotency_key)
         return {'changeRequestId':str(row.id),'status':row.status}
     @app.get('/api/v1/governance/requests',tags=['Governance'])
     def requests(status:str|None=None,claims=Depends(_principal),db:Session=Depends(db_session)):
@@ -270,21 +289,28 @@ def create_app(database_url=None, *, engine=None):
             except Exception:raise s.DomainError('INVALID_EXCEL','Invalid XLSX spreadsheet',400)
         else:raise s.DomainError('INVALID_FORMAT','Only CSV and XLSX accepted',400)
         if len(rows)>500:raise s.DomainError('TOO_MANY_ROWS','Maximum 500 rows per import',400)
-        required={'type','code','name','validFrom'}
+        required={'type','validFrom'}
         parsed=[];errors=[]
         for i,row in enumerate(rows,2):
             kind=str(row.get('type') or '').strip().upper()
-            if not required.issubset(row) or kind not in ('LOCATION','SECTION'):
-                errors.append({'row':i,'error':'Required headers: type,code,name,validFrom; type LOCATION/SECTION'})
+            if not required.issubset(row) or kind not in ('LOCATION','SECTION','MAPPING'):
+                errors.append({'row':i,'error':'Required: type,validFrom; type LOCATION, SECTION or MAPPING'})
                 continue
             try:
                 start=str(row['validFrom'].date() if hasattr(row['validFrom'],'date') else row['validFrom'])
                 s.day(start)
-                payload={'code':str(row['code']).strip(),'name':str(row['name']).strip(),
-                         'validFrom':start}
-                if kind=='LOCATION':payload['locationType']=str(row.get('locationType') or 'OTHER')
-                if not payload['code'] or not payload['name']:raise ValueError('Missing code/name')
-                parsed.append({'action':'LOCATION_CREATE' if kind=='LOCATION' else 'SECTION_DEFINE','payload':payload})
+                if kind=='MAPPING':
+                    payload={'locationCode':str(row.get('locationCode') or '').strip(),
+                             'sectionCode':str(row.get('sectionCode') or '').strip(),'validFrom':start}
+                    if not payload['locationCode'] or not payload['sectionCode']:
+                        raise ValueError('Missing mapping codes')
+                    parsed.append({'action':'SECTION_ATTACH_BY_CODE','payload':payload})
+                else:
+                    payload={'code':str(row.get('code') or '').strip(),
+                             'name':str(row.get('name') or '').strip(),'validFrom':start}
+                    if kind=='LOCATION':payload['locationType']=str(row.get('locationType') or 'OTHER')
+                    if not payload['code'] or not payload['name']:raise ValueError('Missing code/name')
+                    parsed.append({'action':'LOCATION_CREATE' if kind=='LOCATION' else 'SECTION_DEFINE','payload':payload})
             except Exception as e:errors.append({'row':i,'error':'Invalid date/code/name'})
         return {'operations':parsed,'errors':errors,'totalRows':len(rows),
                 'instruction':'Submit these operations as a BATCH_REGISTER change request; an independent approver must approve before apply.'}

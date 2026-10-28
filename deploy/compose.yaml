@@ -15,6 +15,7 @@ services:
       DB_USER: ${DB_USER:?Required}
       DB_PASSWORD: ${DB_PASSWORD:?Required}
       DB_AG_ENABLED: ${DB_AG_ENABLED:-false}
+      TRUSTED_PROXY_IPS: ${TRUSTED_PROXY_IPS:?Set actual trusted reverse-proxy IPs}
       AUTH_ISSUER: ${AUTH_ISSUER:?Required}
       AUTH_AUDIENCE: ${AUTH_AUDIENCE:?Required}
       AUTH_JWKS_URL: ${AUTH_JWKS_URL:?Required}

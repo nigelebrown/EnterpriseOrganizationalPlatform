@@ -22,3 +22,13 @@ testpaths = ["tests"]
 addopts = "-q"
 [tool.ruff]
 line-length = 120
+
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["jcf_platform*"]
+
+[tool.setuptools.package-data]
+jcf_platform = ["admin.html", "admin.js", "admin.css"]

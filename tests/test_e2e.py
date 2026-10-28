@@ -170,3 +170,117 @@ def test_date_overlap_algorithm():
     assert not overlap(date(2020,1,1),date(2020,2,1),date(2020,2,1),None)
     assert overlap(date(2020,1,1),None,date(2026,1,1),None)
     assert not contained(date(2020,1,1),None,date(2020,1,1),date(2021,1,1))
+
+def test_batch_cannot_escalate_to_hr(client,service_client):
+    body={'operations':[{'action':'PERSONNEL_CREATE','payload':{'computerNumber':'12345','displayName':'Intruder'}}]}
+    r=service_client('BATCH_REGISTER',body)
+    assert r.status_code==403 and r.json()['code']=='INVALID_BATCH'
+
+def test_section_restricted_filter_and_reporting_target(client,service_client,app):
+    locid=getid(service_client('LOCATION_CREATE',loc('A')))
+    secret=getid(service_client('LOCATION_CREATE',loc('B','Secret HQ',visibility='RESTRICTED')))
+    d=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    restricted=getid(service_client('SECTION_ATTACH',attach(locid,d,visibility='RESTRICTED')))
+    getid(service_client('REPORTING_EDGE',dict(sourceId=locid,authorityId=secret,
+                                                relationType='FUNCTIONAL',validFrom='2020-01-01')))
+    assert client.get(f'/api/v1/registry/locations/{locid}/sections').json()['items']==[]
+    assert client.get(f'/api/v1/org-nodes/{locid}/reporting').json()['authorities']==[]
+    app.state.claims['_scopes'].add('registry.restricted.read')
+    assert client.get(f'/api/v1/registry/locations/{locid}/sections').json()['items'][0]['sectionId']==restricted
+    assert len(client.get(f'/api/v1/org-nodes/{locid}/reporting').json()['authorities'])==1
+
+def test_schema_invalid_request_error(client):
+    r=client.post('/api/v1/registry/posting-selections/validate',json={'locationId':'invalid'})
+    assert r.status_code==422 and r.headers['content-type']=='application/problem+json'
+    assert r.json()['code']=='INVALID_REQUEST'
+
+def test_restricted_contact_owner_is_not_disclosed(client,service_client):
+    hidden=getid(service_client('LOCATION_CREATE',loc('SH','Secret HQ',visibility='RESTRICTED')))
+    getid(service_client('CONTACT_ASSIGN',dict(entityKind='LOCATION',entityId=hidden,kind='PHONE',value='0123',
+                      purpose='RECEPTION',validFrom='2020-01-01')))
+    r=client.get(f'/api/v1/contacts?entityKind=LOCATION&entityId={hidden}')
+    assert r.status_code==404
+
+def test_scope_by_domain(client,service_client,app):
+    app.state.claims['_scopes'].discard('hr.write')
+    r=client.post('/api/v1/governance/requests',json={'action':'PERSONNEL_CREATE',
+         'payload':{'computerNumber':'12345','displayName':'Officer'},'reference':'ORDER-A'})
+    assert r.status_code==403
+    r=client.post('/api/v1/governance/requests',json={'action':'LOCATION_CREATE','payload':loc('A'),
+                                                    'reference':'ORDER-A'})
+    assert r.status_code==201
+
+def test_request_idempotency_prevents_duplicate(client):
+    key='replay-unique-test-12345'
+    body={'action':'LOCATION_CREATE','payload':loc('A'),'reference':'ORDER-A'}
+    first=client.post('/api/v1/governance/requests',json=body,headers={'Idempotency-Key':key})
+    again=client.post('/api/v1/governance/requests',json=body,headers={'Idempotency-Key':key})
+    assert first.status_code==201 and first.json()['changeRequestId']==again.json()['changeRequestId']
+    bad=client.post('/api/v1/governance/requests',json={**body,'reference':'ORDER-B'},
+                    headers={'Idempotency-Key':key})
+    assert bad.status_code==409 and bad.json()['code']=='IDEMPOTENCY_CONFLICT'
+
+def test_sqlalchemy_schema_has_fk_guards():
+    from jcf_platform.models import Base
+    from sqlalchemy import ForeignKeyConstraint
+    sec=Base.metadata.tables['section_building']
+    assert len([c for c in sec.constraints if isinstance(c,ForeignKeyConstraint)])==2
+    assert 'idempotency_key' in Base.metadata.tables['change_request'].columns
+
+def test_import_xlsx(client):
+    from io import BytesIO
+    from openpyxl import Workbook
+    book=Workbook();ws=book.active
+    ws.append(['type','code','name','validFrom','locationType'])
+    ws.append(['LOCATION','SAC','Saint Andrew Central','2020-01-01','DIVISION'])
+    output=BytesIO();book.save(output)
+    r=client.post('/api/v1/import/preview',files={'file':('locations.xlsx',output.getvalue(),
+                                                       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')})
+    assert r.status_code==200,r.text
+    assert r.json()['operations'][0]['payload']['code']=='SAC'
+
+def test_excel_code_based_section_mapping(client,service_client):
+    csv_bytes=(b'type,code,name,validFrom,locationType,locationCode,sectionCode\n'
+             b'MAPPING,,,2020-01-01,,DIV-A,CIB\n'
+             b'SECTION,CIB,CIB,2020-01-01,,,\n'
+             b'LOCATION,DIV-A,Division A,2020-01-01,DIVISION,,\n')
+    preview=client.post('/api/v1/import/preview',files={'file':('data.csv',csv_bytes,'text/csv')})
+    assert preview.status_code==200,preview.text
+    assert len(preview.json()['operations'])==3 and not preview.json()['errors']
+    r=service_client('BATCH_REGISTER',{'operations':preview.json()['operations']})
+    assert r.status_code==200,r.text
+    loc_id=client.get('/api/v1/registry/locations').json()['items'][0]['locationId']
+    assert client.get(f'/api/v1/registry/locations/{loc_id}/sections').json()['items'][0]['name']=='CIB'
+
+def test_section_rename_keeps_instance_ids(client,service_client):
+    locid=getid(service_client('LOCATION_CREATE',loc('DIV-A')))
+    defin=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    unit=getid(service_client('SECTION_ATTACH',attach(locid,defin)))
+    getid(service_client('SECTION_RENAME',dict(sectionDefinitionId=defin,name='Criminal Investigations Branch',effectiveFrom='2026-01-01')))
+    before=client.get(f'/api/v1/registry/locations/{locid}/sections?asOf=2025-01-01').json()['items'][0]
+    after=client.get(f'/api/v1/registry/locations/{locid}/sections?asOf=2026-02-01').json()['items'][0]
+    assert before['name']=='CIB' and after['name']=='Criminal Investigations Branch'
+    assert before['sectionId']==after['sectionId']==unit
+
+def test_restricted_retirement_guard_and_asof(client,service_client):
+    locid=getid(service_client('LOCATION_CREATE',loc('A')))
+    defin=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    unit=getid(service_client('SECTION_ATTACH',attach(locid,defin)))
+    assert service_client('LOCATION_RETIRE',dict(locationId=locid,effectiveFrom='2026-01-01')).status_code==409
+    getid(service_client('SECTION_RETIRE',dict(sectionId=unit,effectiveFrom='2026-01-01')))
+    getid(service_client('LOCATION_RETIRE',dict(locationId=locid,effectiveFrom='2026-01-01')))
+    assert client.get('/api/v1/registry/locations?asOf=2025-12-31').json()['items'][0]['locationId']==locid
+    assert client.get('/api/v1/registry/locations?asOf=2026-01-01').json()['items']==[]
+
+def test_alias_search_for_section(client,service_client):
+    locid=getid(service_client('LOCATION_CREATE',loc('A')))
+    defin=getid(service_client('SECTION_DEFINE',section('CIB','Criminal Investigations Branch')))
+    getid(service_client('SECTION_ATTACH',attach(locid,defin)))
+    getid(service_client('SECTION_ALIAS',dict(definitionId=defin,alias='CIB')))
+    assert len(client.get(f'/api/v1/registry/locations/{locid}/sections?search=cib').json()['items'])==1
+    assert client.get(f'/api/v1/registry/locations/{locid}/sections?search=notfound').json()['items']==[]
+
+def test_openapi_contract_declares_bearer(client):
+    contract=client.get('/api/openapi.json').json()
+    assert 'OIDC_Bearer' in contract['components']['securitySchemes']
+    assert contract['paths']['/api/v1/registry/locations']['get']['security']

@@ -91,3 +91,27 @@ See [release gates](docs/RELEASE_GATES.md) for the remaining mandatory tests and
 - Restrict `registry.restricted.read` to designated clients, not self-service onboarding.
 - Rate limits, web gateway hardening, complete HR workflows, real SQL acceptance tests and AG failover testing
   are required before release sign-off.
+
+## Idempotency and change feeds
+
+Write clients should send a unique `Idempotency-Key` (10–120 characters) when creating a
+ChangeRequest. A replay of the same actor, payload, action and reference returns the existing
+request; reusing the same key for another payload returns HTTP 409. The outbox change-feed
+cursor uses a monotonically increasing database sequence, not an offset or a timestamp.
+
+## Live database verification commands (JCF test infrastructure)
+
+```bash
+# Create a fresh isolated empty database, for example JcfEnterprise_TEST, on SQL2019 Express.
+export TEST_SQLSERVER_URL='mssql+pyodbc:///?odbc_connect=<URL-ENCODED-ODBC-CONNECTION-STRING>'
+export ALLOW_DESTRUCTIVE_TEST_DDL=YES
+python scripts/sql2019_express_integration.py
+
+# Against an approved AG *listener* (read-only diagnostic, no failover action):
+export DB_AG_ENABLED=true
+python scripts/ag_listener_readiness.py
+```
+
+The SQL2019 test script **creates and drops** platform tables and therefore refuses to operate
+against a non-TEST/DEV database or a database containing existing platform tables. The AG script
+only inspects connectivity; a real controlled failover/restore still requires JCF infrastructure.
