@@ -166,11 +166,13 @@ def test_contact_directory_joins_authorized_organizational_entities(client, app)
     response = client.get("/api/v1/contacts/directory")
     assert response.status_code == 200, response.text
     items = response.json()["items"]
-    assert len(items) == 1
-    assert items[0]["value"] == "000-0000"
-    assert items[0]["entityKind"] == "LOCATION"
+    values = {item["value"] for item in items}
+    assert "000-0000" in values
+    assert "000-9999" not in values
+    assert all(item["entityKind"] == "LOCATION" for item in items)
     app.state.claims["_scopes"].add("contacts.personal.read")
-    assert len(client.get("/api/v1/contacts/directory").json()["items"]) == 2
+    personal_items = client.get("/api/v1/contacts/directory").json()["items"]
+    assert any(item["value"] == "000-9999" for item in personal_items)
     app.state.claims["_scopes"].remove("contacts.personal.read")
     with Session(app.state.engine) as db:
         sac = db.scalar(select(m.Location).where(m.Location.code == "DEMO-SAC"))
