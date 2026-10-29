@@ -9,6 +9,15 @@ assert(start >= 0 && end > start,'Synthetic preview function must exist');
 const data = runInNewContext(js.slice(start,end)+'\nsampleSnapshot()');
 assert.equal(data.preview,true);
 assert.equal(data.locations.length,12);
+assert.equal(data.hierarchy.length,12);
+const byCode = new Map(data.hierarchy.map(x=>[x.code,x]));
+assert.equal(byCode.get('DEMO-HQ').parentLocationId,null);
+assert.equal(byCode.get('DEMO-EXT').parentLocationId,null);
+assert.equal(byCode.get('DEMO-SO').parentLocationId,byCode.get('DEMO-HQ').locationId);
+assert.equal(byCode.get('DEMO-A1').parentLocationId,byCode.get('DEMO-SO').locationId);
+assert.equal(byCode.get('DEMO-SAC').parentLocationId,byCode.get('DEMO-A1').locationId);
+assert.equal(byCode.get('DEMO-STATION').parentLocationId,byCode.get('DEMO-SAC').locationId);
+
 assert.equal(data.sections.length,9);
 assert.equal(data.mappings.length,16);
 assert.equal(data.buildings.length,2);
