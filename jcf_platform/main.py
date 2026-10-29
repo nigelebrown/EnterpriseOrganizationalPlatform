@@ -494,6 +494,36 @@ def create_app(database_url=None, *, engine=None):
             if c and (c.visibility!='PERSONAL' or 'contacts.personal.read' in claims['_scopes']):
                 visible.append({'kind':c.kind,'value':c.value,'purpose':r.purpose,'telephoneSystem':c.telephone_system})
         return {'entityKind':kind,'entityId':str(entityId),'items':visible}
+    @app.get('/api/v1/hr/personnel/by-computer-number/{computer_number}/posting/current',tags=['HR'])
+    def current_posting_by_computer_number(computer_number:str,asOf:date|None=None,
+                                          claims=Depends(permission('hr.postings.read')),
+                                          db:Session=Depends(db_session)):
+        """Authoritative *applied* primary posting for a trusted server-side consumer.
+
+        No cross-system Location UUID is invented and no pending governance change
+        is represented as official. A missing/ambiguous current posting fails closed
+        in consumers such as JcfAdReset HRIS approval.
+        """
+        number=computer_number.strip()
+        if not number or len(number)>45 or not all(c.isalnum() or c in '-_' for c in number):
+            raise s.DomainError('INVALID_COMPUTER_NUMBER','Invalid Computer Number',400)
+        person=db.scalar(select(m.Personnel).where(m.Personnel.computer_number==number))
+        if person is None:raise s.DomainError('PERSONNEL_NOT_FOUND','Personnel record not found',404)
+        at=asOf or date.today()
+        active=[p for p in db.scalars(select(m.Posting).where(
+            m.Posting.personnel_id==person.id,m.Posting.is_primary==True)).all() if s.asof(p,at)]
+        if len(active)>1:
+            raise s.DomainError('AMBIGUOUS_PRIMARY_POSTING','Multiple primary postings overlap',409)
+        current=active[0] if active else None
+        if current is not None:
+            s.validate_pair(db,current.location_id,current.section_id,at,allow_restricted=True)
+        return {'computerNumber':number,'personnelId':str(person.id),'asOf':str(at),
+                'posting':None if current is None else {
+                    'postingId':str(current.id),'locationId':str(current.location_id),
+                    'sectionId':str(current.section_id),'isPrimary':True,
+                    'validFrom':str(current.valid_from),
+                    'validTo':str(current.valid_to) if current.valid_to else None}}
+
     @app.get('/api/v1/hr/personnel/{person_id}/postings',tags=['HR'])
     def postings(person_id:UUID,claims=Depends(permission('hr.postings.read')),db:Session=Depends(db_session)):
         s.get(db,m.Personnel,person_id)
