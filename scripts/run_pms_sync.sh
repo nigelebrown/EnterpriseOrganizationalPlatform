@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PMS/HRIS reference-table sync into isolated JCF-EMP test SQL Server.
-# sudo bash scripts/run_pms_sync.sh setup|schema|inspect|preview|apply|verify|sync
+# sudo bash scripts/run_pms_sync.sh setup|schema|relationships|inspect|preview|apply|verify|sync
 set -Eeuo pipefail
 ACTION=preview
 if [[ $# -gt 0 ]];then ACTION="$1";fi
@@ -11,7 +11,7 @@ MODE="$CONFIG_DIR/mode"
 fail(){ echo "[PMS SYNC] ERROR: $*" >&2; exit 1; }
 log(){ echo "[PMS SYNC] $*"; }
 [[ "$EUID" -eq 0 ]] || fail "Run as root/sudo"
-case "$ACTION" in setup|schema|inspect|preview|apply|verify|sync);; *)fail "Use setup, schema, inspect, preview, apply, verify or sync";;esac
+case "$ACTION" in setup|schema|relationships|inspect|preview|apply|verify|sync);; *)fail "Use setup, schema, relationships, inspect, preview, apply, verify or sync";;esac
 [[ -r "$MODE" ]] || fail "JCF-EMP is not installed"
 grep -qx INSTALL_MODE=local-express "$MODE" || fail "Cannot import into external/production SQL"
 [[ -r "$CONFIG_DIR/migration.env" ]] || fail "Missing migration DB settings"
@@ -85,6 +85,7 @@ schema(){
 }
 case "$ACTION" in
  schema)schema;;
+ relationships)run relationships;;
  inspect)run inspect;;
  preview)run preview --include-pdf;;
  verify)run verify;;
