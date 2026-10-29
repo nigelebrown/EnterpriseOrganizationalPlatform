@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PMS/HRIS reference-table sync into isolated JCF-EMP test SQL Server.
-# sudo bash scripts/run_pms_sync.sh setup|inspect|preview|apply|verify|sync
+# sudo bash scripts/run_pms_sync.sh setup|schema|inspect|preview|apply|verify|sync
 set -Eeuo pipefail
 ACTION=preview
 if [[ $# -gt 0 ]];then ACTION="$1";fi
@@ -11,7 +11,7 @@ MODE="$CONFIG_DIR/mode"
 fail(){ echo "[PMS SYNC] ERROR: $*" >&2; exit 1; }
 log(){ echo "[PMS SYNC] $*"; }
 [[ "$EUID" -eq 0 ]] || fail "Run as root/sudo"
-case "$ACTION" in setup|inspect|preview|apply|verify|sync);; *)fail "Use setup, inspect, preview, apply, verify or sync";;esac
+case "$ACTION" in setup|schema|inspect|preview|apply|verify|sync);; *)fail "Use setup, schema, inspect, preview, apply, verify or sync";;esac
 [[ -r "$MODE" ]] || fail "JCF-EMP is not installed"
 grep -qx INSTALL_MODE=local-express "$MODE" || fail "Cannot import into external/production SQL"
 [[ -r "$CONFIG_DIR/migration.env" ]] || fail "Missing migration DB settings"
@@ -66,13 +66,25 @@ image="jcf/enterprise-organizational-platform:$tag"
 docker image inspect "$image" >/dev/null || fail "Application image missing. Run bash install.sh first."
 docker network inspect jcf-enterprise_default >/dev/null ||
  fail "JCF-EMP Compose network missing. Run installer and inspect compose networking."
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 run(){
+ # Mount current checked-out scripts read-only: importer fixes and schema probes
+ # require only git pull, not a rebuilt application container/database upgrade.
  docker run --rm --network jcf-enterprise_default \
+    --mount "type=bind,src=$ROOT/scripts,dst=/app/scripts,readonly" \
     --env-file "$CONFIG_DIR/migration.env" \
     --env-file "$SECRETS" \
     --entrypoint python "$image" -m scripts.pms_registry_sync "$@"
 }
+schema(){
+ docker run --rm --network jcf-enterprise_default \
+    --mount "type=bind,src=$ROOT/scripts,dst=/app/scripts,readonly" \
+    --env-file "$CONFIG_DIR/migration.env" \
+    --env-file "$SECRETS" \
+    --entrypoint python "$image" -m scripts.probe_pms_schema --compare HRIS_Copy
+}
 case "$ACTION" in
+ schema)schema;;
  inspect)run inspect;;
  preview)run preview --include-pdf;;
  verify)run verify;;
