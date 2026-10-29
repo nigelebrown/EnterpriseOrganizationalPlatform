@@ -65,6 +65,49 @@ Its SQL volume, user credentials and data are preserved. On a production AG
 configuration, repair refuses to proceed without the DBA-controlled procedure.
 A completed application still requires configured OIDC and secure HTTPS ingress.
 
+## One-command Nginx HTTPS GUI ingress on CentOS Stream 9
+
+After the JCF-EMP application is healthy at `127.0.0.1:8080`, run the
+version-controlled proxy installer from your existing repository checkout.
+For a **testing-only** TLS certificate with IP `172.17.102.101`:
+
+```bash
+cd /root/EnterpriseOrganizationalPlatform && \
+git pull --ff-only origin feat/initial-modular-platform && \
+sudo bash scripts/install_reverse_proxy.sh --test-self-signed --ip 172.17.102.101
+```
+
+The script checks the interface and backend, installs Nginx, creates/reuses a
+90-day self-signed test certificate containing the IP subjectAltName, verifies
+that its key matches, configures Nginx as `172.17.102.101:443` ->
+`127.0.0.1:8080`, applies the SELinux `httpd_can_network_connect` boolean
+when required, and enables HTTPS in the active firewalld zone. Port 8080 and
+SQL port 1433 remain unexposed. It preserves the existing application, Docker
+volumes, database and installer secrets. Reruns validate and update only its
+managed Nginx site. It refuses to overwrite an unrelated existing HTTPS
+listener on 443 and restores the previous managed config on Nginx failure.
+
+Navigate to `https://172.17.102.101/admin` from a browser on a reachable
+JCF network. A self-signed certificate triggers a browser **trust warning**:
+do not regard this as verified identity or use it for operational users.
+For production, have the JCF PKI issue a trusted certificate for an approved
+DNS name and install with:
+
+```bash
+sudo bash scripts/install_reverse_proxy.sh \
+  --ip 172.17.102.101 \
+  --hostname emp.internal.example.jcf \
+  --cert /etc/pki/tls/certs/emp-fullchain.pem \
+  --key /etc/pki/tls/private/emp.key
+```
+
+Replace the example DNS name with the actual managed JCF record and ensure
+the CA is trusted on client devices. Firewall policy also needs any upstream
+segment ACLs to permit TCP 443. Nginx HTTPS provides encrypted transport,
+**not** administrative authentication: OIDC/Entra ID and client permissions
+must still be configured before using protected records or workflows.
+Do not publish the test certificate to the internet.
+
 ## CentOS Stream 9 — one-click command line setup
 
 On a CentOS Stream 9 x86_64 VM, clone the authenticated private GitHub development branch:
