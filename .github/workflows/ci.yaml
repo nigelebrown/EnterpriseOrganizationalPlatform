@@ -69,6 +69,10 @@ jobs:
           docker compose --project-name jcf-enterprise --env-file /tmp/jcf-config/deployment.env -f deploy/compose.yaml config --quiet
       - name: Build Linux app container with Microsoft ODBC Driver 18
         run: docker build --build-arg INCLUDE_TEST_DEPS=1 -t jcf-platform-ci .
+      - name: Verify PMS import module resolution in production container image
+        run: |
+          docker run --rm --entrypoint python jcf-platform-ci -m scripts.pms_registry_sync --help
+          docker run --rm --entrypoint python jcf-platform-ci -c 'import scripts.pms_registry_sync, scripts.pms_pdf_directory; assert scripts.pms_pdf_directory.load_candidates()'
       - name: Initialize disposable database (CI only)
         run: |
           docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
