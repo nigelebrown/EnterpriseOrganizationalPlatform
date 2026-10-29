@@ -125,6 +125,31 @@ def test_personnel_posting_and_leave(client,service_client):
     getid(service_client('LEAVE_REQUEST',dict(personnelId=p,category='ANNUAL',startsOn='2026-11-01',endsBefore='2026-11-05')))
     assert client.get(f'/api/v1/hr/personnel/{p}/leave').json()['items'][0]['status']=='REQUESTED'
 
+def test_jcfadreset_current_posting_contract(client,service_client,app):
+    """A member's approved posting resolves to the EMP IDs, never a local duplicate."""
+    a=getid(service_client('LOCATION_CREATE',loc('SAC','Saint Andrew Central')))
+    b=getid(service_client('LOCATION_CREATE',loc('SAS','Saint Andrew South')))
+    unit=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
+    section_a=getid(service_client('SECTION_ATTACH',attach(a,unit)))
+    section_b=getid(service_client('SECTION_ATTACH',attach(b,unit)))
+    member=getid(service_client('PERSONNEL_CREATE',dict(computerNumber='77883',displayName='Example Member')))
+    endpoint='/api/v1/hr/personnel/by-computer-number/77883/posting/current?asOf=2026-10-29'
+    # A person with no approved primary posting must NOT be treated as assigned.
+    empty=client.get(endpoint)
+    assert empty.status_code==200 and empty.json()['posting'] is None
+    getid(service_client('POSTING_CREATE',dict(personnelId=member,locationId=a,
+                            sectionId=section_a,validFrom='2026-10-01')))
+    posted=client.get(endpoint)
+    assert posted.status_code==200,posted.text
+    assert posted.json()['computerNumber']=='77883'
+    assert posted.json()['posting']['locationId']==a
+    assert posted.json()['posting']['sectionId']==section_a
+    assert posted.json()['posting']['sectionId']!=section_b
+    assert client.get('/api/v1/hr/personnel/by-computer-number/99999/posting/current').status_code==404
+    app.state.claims['_scopes'].discard('hr.postings.read')
+    assert client.get(endpoint).status_code==403
+
+
 def test_restricted_visibility(client,service_client,app):
     locid=getid(service_client('LOCATION_CREATE',loc('SECRET','Protected HQ',visibility='RESTRICTED')))
     defin=getid(service_client('SECTION_DEFINE',section('CIB','CIB')))
