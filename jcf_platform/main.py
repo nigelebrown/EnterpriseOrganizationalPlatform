@@ -371,6 +371,48 @@ def create_app(database_url=None, *, engine=None):
             link=db.get(m.LocationBuilding,a.location_building_id);b=db.get(m.Building,link.building_id)
             if b and s.asof(b,at):items.append({'buildingId':str(b.id),'name':b.name,'assignmentType':a.assignment_type})
         return {'sectionId':str(section_id),'items':items}
+    @app.get('/api/v1/contacts/directory',tags=['Contact Directory'])
+    def contact_directory(asOf:date|None=None,entityKind:str|None=None,
+                          limit:int=Query(200,ge=1,le=200),cursor:int=Query(0,ge=0),
+                          claims=Depends(permission('contacts.read')),
+                          registry_claims=Depends(permission('registry.read')),
+                          facilities_claims=Depends(permission('facilities.read')),
+                          db:Session=Depends(db_session)):
+        """Directory-facing contacts only; personnel, guests and offices excluded.
+
+        Independent contact records retain their entity ownership. Consumers must
+        use entityKind + entityId to resolve an organizational or physical address.
+        """
+        at=asOf or date.today()
+        kinds={'LOCATION','LOCATION_SECTION','BUILDING'}
+        if entityKind and entityKind.upper() not in kinds:
+            raise s.DomainError('INVALID_ENTITY_KIND','Unsupported directory entity kind',422)
+        restricted='registry.restricted.read' in claims['_scopes']
+        visible_locations={x.id for x in db.scalars(select(m.Location)).all()
+                           if s.asof(x,at) and (restricted or x.visibility=='STANDARD')}
+        visible_sections={x.id for x in db.scalars(select(m.LocationSection)).all()
+                          if s.asof(x,at) and x.location_id in visible_locations
+                          and (restricted or x.visibility=='STANDARD')}
+        visible_buildings={x.id for x in db.scalars(select(m.Building)).all()
+                           if s.asof(x,at)}
+        allowed={'LOCATION':visible_locations,'LOCATION_SECTION':visible_sections,
+                 'BUILDING':visible_buildings}
+        rows=[]
+        for assignment in db.scalars(select(m.ContactAssignment)).all():
+            if assignment.entity_kind not in kinds or not s.asof(assignment,at):continue
+            if entityKind and assignment.entity_kind!=entityKind.upper():continue
+            if assignment.entity_id not in allowed[assignment.entity_kind]:continue
+            contact=db.get(m.Contact,assignment.contact_id)
+            if not contact or (contact.visibility=='PERSONAL' and
+                               'contacts.personal.read' not in claims['_scopes']):continue
+            rows.append({'contactAssignmentId':str(assignment.id),
+                         'entityKind':assignment.entity_kind,'entityId':str(assignment.entity_id),
+                         'kind':contact.kind,'value':contact.value,'purpose':assignment.purpose,
+                         'telephoneSystem':contact.telephone_system})
+        rows.sort(key=lambda x:(x['entityKind'],x['entityId'],x['kind'],x['value']))
+        return {'asOf':str(at),'items':rows[cursor:cursor+limit],
+                'nextCursor':str(cursor+limit) if len(rows)>cursor+limit else None}
+
     @app.get('/api/v1/contacts',tags=['Contact Directory'])
     def contacts(entityKind:str,entityId:UUID,asOf:date|None=None,claims=Depends(permission('contacts.read')),
                  db:Session=Depends(db_session)):
