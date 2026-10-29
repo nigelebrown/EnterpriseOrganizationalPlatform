@@ -41,7 +41,6 @@ function alertMsg(msg){$('#alert').textContent=msg}
 const rand=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');
 function b64url(buffer){return btoa(String.fromCharCode(...new Uint8Array(buffer))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','')}
 async function signIn(){config=await (await fetch('/api/v1/admin/oidc-config')).json();
- if(config.localTestEnabled){$('#local-login-form').hidden=false;$('#local-username').focus();return}
  if(!config.clientId||!config.authorizationEndpoint||!config.tokenEndpoint){alertMsg('OIDC client configuration is required on the server.');return}
  const verifier=b64url(crypto.getRandomValues(new Uint8Array(32)));const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier));
  const state=rand();sessionStorage.setItem('jcf_pkce',JSON.stringify({verifier,state,at:Date.now()}));
@@ -70,6 +69,7 @@ async function localSignIn(event){
   $('#local-login-form').reset();
   $('#local-login-form').hidden=true;
   $('#login').hidden=true;
+  $('#local-login-open').hidden=true;
   $('#logout').hidden=false;
   await loadView();
  }catch(error){alertMsg(error.message)}
@@ -87,7 +87,7 @@ async function authCallback(){const p=new URLSearchParams(location.search);if(!p
  try{profile=JSON.parse(atob(token.split('.')[1].replaceAll('-','+').replaceAll('_','/')))}catch{profile={sub:'Authenticated'}}
  $('#identity').textContent=profile.name||profile.preferred_username||profile.sub;
  previewMode=false;$('#preview').textContent='Preview sample';
- $('#login').hidden=true;$('#logout').hidden=false;loadView();}
+ $('#login').hidden=true;$('#local-login-open').hidden=true;$('#logout').hidden=false;loadView();}
 async function api(path,opts={}){if(!token)throw Error('Sign in required');
  const response=await fetch(path,{...opts,headers:{'Authorization':'Bearer '+token,'Content-Type':'application/json',...(opts.headers||{})}});
  let result=await response.json();if(!response.ok)throw Error(result.code+': '+result.detail);return result;}
@@ -595,7 +595,13 @@ $('#local-login-cancel').onclick=()=>{$('#local-login-form').hidden=true;$('#loc
 $('#refresh').onclick=()=>{directoryCache=null;loadView()};
 $('#preview').onclick=()=>{previewMode=!previewMode;directoryCache=null;
  $('#preview').textContent=previewMode?'Exit sample preview':'Preview sample';loadView()};
-$('#login').onclick=signIn;$('#logout').onclick=()=>{token=null;profile=null;$('#identity').textContent='Not signed in';
+$('#login').onclick=signIn;
+$('#local-login-open').onclick=()=>{$('#local-login-form').hidden=false;$('#local-username').focus()};
+$('#logout').onclick=()=>{token=null;profile=null;$('#identity').textContent='Not signed in';
  $('#local-login-form').hidden=true;$('#local-login-form').reset();
- $('#login').hidden=false;$('#logout').hidden=true;directoryCache=null;previewMode=false;loadView()};
-(async()=>{try{await authCallback()}catch(e){alertMsg(e.message)}loadView()})();
+ $('#login').hidden=false;$('#local-login-open').hidden=!(config&&config.localTestEnabled);$('#logout').hidden=true;directoryCache=null;previewMode=false;loadView()};
+(async()=>{try{
+ config=await (await fetch('/api/v1/admin/oidc-config',{cache:'no-store'})).json();
+ $('#local-login-open').hidden=!config.localTestEnabled;
+ await authCallback();
+ }catch(e){alertMsg(e.message)}loadView()})();
