@@ -1,8 +1,8 @@
 """Import HRIS/PMS organizational lookup tables into isolated JCF-EMP SQL2019 Express.
 
 Source: READ-ONLY dbo.Portfolios, Areas, Branches, Divisions, Stations, Sections,
-Units; exact names and parent columns verified from the user's HRIS Formation
-Schema (2026-10-21) and original JcfAdReset SqlHrisProfiles.cs source.
+Units. HRIS is an UNTRUSTED lookup source, not the target schema or hierarchy.
+No source hierarchy relationships are copied into JCF-EMP automatically.
 No PersonnelInformation, Assignments or other staff data are accessed.
 
 Usage inside the existing JCF-EMP Docker migration image:
@@ -102,8 +102,15 @@ def loc_code(table: str, oid: str) -> str:
     return "PMS-" + TABLES[table][1] + "-" + fingerprint
 
 
-def section_code(name: str) -> str:
-    return "PMS-S-" + hashlib.sha256(normalized_name(name).encode("utf-8")).hexdigest()[:25]
+def section_code(name: str, table: str | None = None, source_oid: str | None = None) -> str:
+    """Keep each source Section/Unit distinct until a human reviews duplicates.
+
+    The two-argument legacy form remains for display/search consistency; the
+    import always supplies table and source Oid, avoiding automatic merging of
+    different HRIS records whose names happen to match.
+    """
+    identity = (table + ":" + source_id(source_oid)) if table and source_oid else normalized_name(name)
+    return "PMS-S-" + hashlib.sha256(identity.encode("utf-8")).hexdigest()[:25]
 
 
 def current_columns(conn, table: str):
@@ -113,20 +120,21 @@ def current_columns(conn, table: str):
 
 
 def extract(conn):
-    """Return a typed metadata-only snapshot, never any personnel row."""
+    """Read active source LOOKUP records only.
+
+    The HRIS formation tables and their relationships are acknowledged as
+    unreliable. They remain seven read-only source tables; the destination
+    uses a single Location table, one Section/Unit category and separately
+    governed effective-dated associations.
+    """
     source = {}
     warnings = []
-    for table, (kind, short, namecol, codecol, parents) in TABLES.items():
+    for table, (kind, short, namecol, codecol, _legacy_parents) in TABLES.items():
         available = current_columns(conn, table)
         required = {"Oid", namecol, "GCRecord"}
         if not required.issubset(available):
             raise RuntimeError(f"PMS table dbo.{table} has missing mandatory columns: {sorted(required-available)}")
         chosen = ["Oid", namecol] + ([codecol] if codecol in available else [])
-        chosen += [p for p in parents if p in available]
-        missing_parents = set(parents) - available
-        if missing_parents:
-            warnings.append(f"{table}: missing parent fields {sorted(missing_parents)}; some links may be unresolved")
-        # Table and column names come ONLY from the hard-coded allowlist above.
         sql = "SELECT " + ",".join(f"[{x}]" for x in chosen) + f" FROM dbo.[{table}] WHERE [GCRecord] IS NULL"
         rows = []
         for item in conn.execute(text(sql)).mappings():
@@ -135,83 +143,48 @@ def extract(conn):
             if not name:
                 warnings.append(f"{table}/{oid}: missing name; skipped")
                 continue
-            record = {"id": oid, "name": name, "sourceTable": table, "kind": kind}
+            record = {"id": oid, "name": name, "sourceTable": table, "kind": kind,
+                      "parents": {}}
             if codecol in chosen:
                 record["legacyCode"] = clean(item[codecol])
-            record["parents"] = {p: source_id(item[p]) for p in parents if p in chosen and item[p] is not None}
             rows.append(record)
         ids = [r["id"] for r in rows]
         if len(ids) != len(set(ids)):
-            raise RuntimeError(f"Duplicate active Oid in dbo.{table}")
+            raise RuntimeError(f"Duplicate active source Oid in dbo.{table}")
         source[table] = rows
     return source, warnings
 
 
 def plan(source):
-    """Build explicit, inspectable map. Never invent ambiguous parents."""
-    errors = []
-    links = {}
-    indexes = {k: {r["id"]: r for r in v} for k, v in source.items()}
-    locs = []
-    for table in ("Portfolios", "Areas", "Branches", "Divisions", "Stations"):
-        for r in source[table]:
-            parents = r["parents"]
-            candidates = []
-            if table in ("Areas", "Branches"):
-                pid = parents.get("Portfolio" if table == "Areas" else "PortfolioName")
-                if pid: candidates.append(("Portfolios", pid))
-            elif table == "Divisions":
-                for col, target in (("Area", "Areas"), ("Branch", "Branches")):
-                    if parents.get(col): candidates.append((target, parents[col]))
-            elif table == "Stations":
-                if parents.get("Division"): candidates.append(("Divisions", parents["Division"]))
-                # 'Area' is kept for diagnostic only: Station is directly beneath Division.
-            good = [(p,oid) for p,oid in candidates if oid in indexes[p]]
-            if len(candidates) > 1:
-                errors.append(f"AMBIGUOUS_PARENT {table}/{r['id']} ({r['name']}): {candidates}; no parent assigned")
-            elif len(candidates) == 1 and not good:
-                errors.append(f"MISSING_PARENT {table}/{r['id']} ({r['name']}): {candidates}; no parent assigned")
-            elif len(good) == 1:
-                links[(table,r["id"])] = good[0]
-            locs.append({**r, "targetCode": loc_code(table,r["id"]),
-                         "parent": list(good[0]) if len(candidates)==len(good)==1 else None})
+    """Import flat source records for reconciliation, never HRIS relationships.
+
+    Each source Location and Section/Unit gets its own independent JCF UUID.
+    Even same-name Sections/Units are retained as separate records until
+    manually reconciled; the source hierarchy is not authoritative.
+    """
+    locations = []
     sections = []
+    issues = []
+    for table in ("Portfolios", "Areas", "Branches", "Divisions", "Stations"):
+        for record in source[table]:
+            locations.append({**record,
+                              "targetCode": loc_code(table, record["id"]),
+                              "parent": None})
     for table in ("Sections", "Units"):
-        for r in source[table]:
-            parents = r["parents"]
-            if table == "Sections":
-                target = ("Divisions",parents["Division"]) if parents.get("Division") else None
-            else:
-                # Units under Stations belong to that Station; Units under a
-                # non-geographic Section belong to the owning Division.
-                station = parents.get("Station")
-                division = parents.get("Division")
-                source_section = indexes["Sections"].get(parents.get("Section"))
-                section_div = source_section["parents"].get("Division") if source_section else None
-                if station and station in indexes["Stations"]:
-                    target = ("Stations",station)
-                    actual_div = indexes["Stations"][station]["parents"].get("Division")
-                    if division and actual_div and division != actual_div:
-                        errors.append(f"CONFLICTING_UNIT_DIVISION {r['id']} ({r['name']}); ignored assignment")
-                        target = None
-                    if section_div and actual_div and section_div != actual_div:
-                        errors.append(f"CONFLICTING_UNIT_SECTION {r['id']} ({r['name']}); ignored assignment")
-                        target = None
-                else:
-                    if division and section_div and division != section_div:
-                        errors.append(f"CONFLICTING_UNIT_PARENTS {r['id']} ({r['name']}); ignored assignment")
-                        target = None
-                    elif division: target = ("Divisions",division)
-                    elif section_div: target = ("Divisions",section_div)
-                    else: target = None
-            if target is not None and target[1] not in indexes[target[0]]:
-                errors.append(f"UNRESOLVED_SECTION_LOCATION {r['id']} ({r['name']}); no attachment")
-                target = None
-            if target is None:
-                errors.append(f"UNASSIGNED_SECTION_UNIT {table}/{r['id']} ({r['name']}); definition only")
-            sections.append({**r, "definitionCode": section_code(r["name"]),
-                             "targetLocationCode":loc_code(*target) if target else None})
-    return locs, sections, errors
+        for record in source[table]:
+            sections.append({**record,
+                             "definitionCode": section_code(record["name"], table, record["id"]),
+                             "targetLocationCode": None})
+    counts = Counter((row["kind"], normalized_name(row["name"])) for row in locations)
+    counts.update(("SECTION_UNIT", normalized_name(row["name"])) for row in sections)
+    for kind_name, count in sorted(counts.items()):
+        if count > 1:
+            issues.append(f"POTENTIAL_DUPLICATE_NAME {kind_name[0]}: {kind_name[1]} ({count} source records, NOT merged)")
+    if locations:
+        issues.append("SOURCE_HIERARCHY_UNTRUSTED: import all Locations unlinked for manual review")
+    if sections:
+        issues.append("SOURCE_SECTION_ASSIGNMENTS_UNTRUSTED: import all Sections/Units unassigned for manual review")
+    return locations, sections, issues
 
 
 def import_correlation(key: str) -> str:
@@ -278,6 +251,9 @@ def apply(db,locs,sections,issues):
             counters["locationsExisting"]+=1
         identifiers[(r["sourceTable"],r["id"])]=lid
         external_id(db,r["sourceTable"],r["id"],lid)
+    # Intentionally do NOT import any old HRIS Location parent/child edges.
+    # Existing JCF-EMP corrections and effective-dated relationships remain
+    # untouched on repeat imports. HRIS is not the authoritative hierarchy.
     for r in locs:
         if r["parent"] is None: continue
         child=identifiers[(r["sourceTable"],r["id"])]
@@ -385,7 +361,7 @@ def main():
                 "locationSectionMappings":len({(s["targetLocationCode"],s["definitionCode"])
                                                for s in sections if s["targetLocationCode"]}),
                 "unresolvedCount":len(issues)+len(warnings),
-                "importPolicy":"Unverified test references, review in JCF-EMP",
+                "importPolicy":"FLAT_SOURCE_REFERENCES_ONLY; manual hierarchy, section placement and deduplication",
                 "unresolvedSample":(warnings+issues)[:30]}
         if args.include_pdf:
             from scripts import pms_pdf_directory
