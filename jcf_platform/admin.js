@@ -41,7 +41,8 @@ function alertMsg(msg){$('#alert').textContent=msg}
 const rand=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');
 function b64url(buffer){return btoa(String.fromCharCode(...new Uint8Array(buffer))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','')}
 async function signIn(){config=await (await fetch('/api/v1/admin/oidc-config')).json();
- if(!config.clientId||!config.authorizationEndpoint||!config.tokenEndpoint){alertMsg('OIDC client configuration is required on the server.');return}
+ if(!config.clientId||!config.authorizationEndpoint||!config.tokenEndpoint){alertMsg('Entra client configuration is required on the server.');return}
+ if(!crypto.subtle){alertMsg('Microsoft Entra ID requires trusted HTTPS for browser PKCE. Use Local test login until a trusted certificate is installed.');return}
  const verifier=b64url(crypto.getRandomValues(new Uint8Array(32)));const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier));
  const state=rand();sessionStorage.setItem('jcf_pkce',JSON.stringify({verifier,state,at:Date.now()}));
  const url=new URL(config.authorizationEndpoint);url.search=new URLSearchParams({response_type:'code',client_id:config.clientId,
@@ -599,9 +600,10 @@ $('#login').onclick=signIn;
 $('#local-login-open').onclick=()=>{$('#local-login-form').hidden=false;$('#local-username').focus()};
 $('#logout').onclick=()=>{token=null;profile=null;$('#identity').textContent='Not signed in';
  $('#local-login-form').hidden=true;$('#local-login-form').reset();
- $('#login').hidden=false;$('#local-login-open').hidden=!(config&&config.localTestEnabled);$('#logout').hidden=true;directoryCache=null;previewMode=false;loadView()};
+ $('#login').hidden=!(config&&config.clientId&&config.authorizationEndpoint&&config.tokenEndpoint);$('#local-login-open').hidden=!(config&&config.localTestEnabled);$('#logout').hidden=true;directoryCache=null;previewMode=false;loadView()};
 (async()=>{try{
  config=await (await fetch('/api/v1/admin/oidc-config',{cache:'no-store'})).json();
  $('#local-login-open').hidden=!config.localTestEnabled;
+ $('#login').hidden=!(config.clientId&&config.authorizationEndpoint&&config.tokenEndpoint);
  await authCallback();
  }catch(e){alertMsg(e.message)}loadView()})();
