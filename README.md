@@ -54,10 +54,19 @@ Full instructions and safety constraints: [docs/INSTALLATION.md](docs/INSTALLATI
 ## Synthetic development sample data
 
 The one-click `--mode local-express` installation now seeds an **illustrative test-only**
-JCF-EMP dataset after schema migrations: 12 example Locations, 5 Section/Unit
+JCF-EMP dataset after schema migrations: 12 example Locations, 9 Section/Unit
 definitions, 16 LocationSection assignments, 10 matrix/command relationships,
 2 fictional buildings, 3 building occupancy records, and 3 synthetic member
-postings. Search **SAC**, **SAS**, **J**, **CIB**, or **DIU**.
+postings. The Section/Unit catalogue includes **CIB**, **PIU**, **General Office**,
+**Armoury**, **Operations Office** and **DIU**, plus the existing illustrative
+Administrative Office, ICT Support and Operations definitions. Search **SAC**,
+**SAS**, **J**, **CIB**, or **DIU**.
+
+New Section/Unit definitions are **not** automatically assigned to every
+Location. A separate, approved Location–Section mapping is required before a
+Section/Unit appears in that Location's dependent dropdown. The synthetic
+`DEMO-*` codes and `[TEST]` display-name prefixes distinguish these fixtures
+from official JCF reference records.
 
 All generated Location and Section codes are `DEMO-*`, all sample person numbers
 are `TEST-JCF-*`, and formation names are prefixed `[TEST]`. Organizational
