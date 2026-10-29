@@ -154,6 +154,33 @@ def create_app(database_url=None, *, engine=None):
         # selectable=false reserved for privileged management retrieval (currently no unselectable entries here).
         return {'asOf':str(asOf or date.today()),'items':rows[cursor:cursor+limit],
                 'nextCursor':str(cursor+limit) if len(rows)>cursor+limit else None}
+    @app.get('/api/v1/registry/location-hierarchy',tags=['Registry'])
+    def location_hierarchy(asOf:date|None=None,limit:int=Query(200,ge=1,le=200),
+                           cursor:int=Query(0,ge=0),
+                           claims=Depends(permission('registry.read')),
+                           db:Session=Depends(db_session)):
+        """Effective-dated organizational tree edges for authorized directory consumers.
+
+        Parent IDs are only returned when both ends are visible to the caller.
+        Non-selectable administrative formations are included for tree navigation,
+        but the existing onboarding Locations endpoint remains selectable-only.
+        """
+        at=asOf or date.today()
+        restricted='registry.restricted.read' in claims['_scopes']
+        visible=[loc for loc in db.scalars(select(m.Location).order_by(m.Location.code)).all()
+                 if s.asof(loc,at) and (restricted or loc.visibility=='STANDARD')]
+        names=s.names_for(db,m.LocationName,'location_id',[loc.id for loc in visible],at)
+        by_id={loc.id:loc for loc in visible if loc.id in names}
+        edges=db.scalars(select(m.LocationParent)).all()
+        parents={edge.child_id:edge.parent_id for edge in edges
+                 if s.asof(edge,at) and edge.child_id in by_id and edge.parent_id in by_id}
+        items=[{'locationId':str(loc.id),'parentLocationId':str(parents[loc.id]) if loc.id in parents else None,
+                'code':loc.code,'name':names[loc.id],'type':loc.location_type,
+                'selectable':loc.selectable}
+               for loc in visible if loc.id in names]
+        return {'asOf':str(at),'items':items[cursor:cursor+limit],
+                'nextCursor':str(cursor+limit) if len(items)>cursor+limit else None}
+
     @app.get('/api/v1/registry/locations/{location_id}/sections',tags=['Registry'])
     def sections(location_id:UUID,asOf:date|None=None,search:str='',claims=Depends(permission('registry.read')),
                  db:Session=Depends(db_session)):
