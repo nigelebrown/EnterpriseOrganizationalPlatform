@@ -49,11 +49,12 @@ def test_schema_diff_is_metadata_only():
     assert all("password" not in str(row).lower() for row in comparison)
 
 
-def test_zero_section_mapping_fails_closed_before_writes():
-    locations=[{"targetCode":"PMS-A-EXAMPLE"}]
-    sections=[{"targetLocationCode":None,"name":"CIB"}]
-    with pytest.raises(RuntimeError,match="no Section/Unit has a verified parent Location"):
-        importer.verify_import_plan(locations,sections)
-    with pytest.raises(RuntimeError,match="no Location records"):
-        importer.verify_import_plan([],sections)
-    importer.verify_import_plan(locations,[{"targetLocationCode":"PMS-A-EXAMPLE"}])
+def test_zero_section_mapping_is_allowed_for_test_reconciliation():
+    locations=[{"kind":"AREA","id":"area-1","name":"Area One","parent":None}]
+    sections=[{"targetLocationCode":None,"name":"CIB","id":"section-1"}]
+    review=importer.review_import_plan(locations,sections,["UNASSIGNED_SECTION_UNIT"])
+    assert review["unassignedSectionUnits"]==1
+    assert review["locationsWithoutParent"]==1
+    assert review["status"]=="IMPORTED_FOR_RECONCILIATION_NOT_APPROVED"
+    with pytest.raises(RuntimeError,match="no usable reference data"):
+        importer.review_import_plan([],[],[])
