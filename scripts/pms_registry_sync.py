@@ -19,7 +19,6 @@ import os
 import re
 from collections import Counter
 from datetime import date
-from uuid import UUID
 from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine, text, select
@@ -75,8 +74,18 @@ def source_engine():
                          pool_pre_ping=True)
 
 
-def guid(value):
-    return str(UUID(str(value))).lower() if value is not None else None
+def source_id(value):
+    """Preserve PMS native lookup identifier as an opaque external reference.
+
+    Source Oid may be a SQL uniqueidentifier or integer. Neither is ever used
+    as a JCF-EMP entity primary key: SQLAlchemy creates new UUIDv4 values.
+    """
+    if value is None:
+        return None
+    key = str(value).strip()
+    if not key or len(key) > 180 or any(c in key for c in "\\r\\n"):
+        raise ValueError("Invalid PMS lookup identifier")
+    return key.lower()
 
 
 def clean(value):
@@ -88,7 +97,9 @@ def normalized_name(value):
 
 
 def loc_code(table: str, oid: str) -> str:
-    return "PMS-" + TABLES[table][1] + "-" + UUID(oid).hex
+    """Stable business import code, not a primary key or original PMS Oid."""
+    fingerprint = hashlib.sha256((table + ":" + source_id(oid)).encode("utf-8")).hexdigest()[:32]
+    return "PMS-" + TABLES[table][1] + "-" + fingerprint
 
 
 def section_code(name: str) -> str:
@@ -119,7 +130,7 @@ def extract(conn):
         sql = "SELECT " + ",".join(f"[{x}]" for x in chosen) + f" FROM dbo.[{table}] WHERE [GCRecord] IS NULL"
         rows = []
         for item in conn.execute(text(sql)).mappings():
-            oid = guid(item["Oid"])
+            oid = source_id(item["Oid"])
             name = clean(item[namecol])
             if not name:
                 warnings.append(f"{table}/{oid}: missing name; skipped")
@@ -127,7 +138,7 @@ def extract(conn):
             record = {"id": oid, "name": name, "sourceTable": table, "kind": kind}
             if codecol in chosen:
                 record["legacyCode"] = clean(item[codecol])
-            record["parents"] = {p: guid(item[p]) for p in parents if p in chosen and item[p] is not None}
+            record["parents"] = {p: source_id(item[p]) for p in parents if p in chosen and item[p] is not None}
             rows.append(record)
         ids = [r["id"] for r in rows]
         if len(ids) != len(set(ids)):
