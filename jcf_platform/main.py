@@ -46,6 +46,16 @@ bearer_scheme=HTTPBearer(auto_error=False,scheme_name='OIDC_Bearer')
 @lru_cache
 def jwk_client(url):return PyJWKClient(url,cache_jwk_set=True,lifespan=300)
 
+def _authorized_permissions(claims):
+    """The JWT signature, audience and issuer must be verified before calling this.
+    Delegated scopes and resource app-role grants have equal precise permission IDs.
+    """
+    delegated=claims.get('scope',claims.get('scp',[]))
+    if isinstance(delegated,str):delegated=delegated.split()
+    roles=claims.get('roles',[])
+    if isinstance(roles,str):roles=[roles]
+    return {value for value in list(delegated or [])+list(roles or []) if isinstance(value,str)}
+
 def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Security(bearer_scheme)):
     if credentials is None or credentials.scheme.lower()!='bearer':
         raise HTTPException(status_code=401,detail='Bearer access token required',headers={'WWW-Authenticate':'Bearer'})
@@ -62,15 +72,8 @@ def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Sec
                               issuer=settings['issuer'],options={'require':['exp','iss','aud','sub']},leeway=30)
     except Exception:
         raise HTTPException(status_code=401,detail='Invalid access token',headers={'WWW-Authenticate':'Bearer'})
-    # Delegated users receive scope/scp; approved application identities receive
-    # Entra app-role values in roles. Both are checked against the verified
-    # issuer/audience/signature above, never trusted from a browser-supplied header.
-    claim_scope=claims.get('scope',claims.get('scp',[]))
-    if isinstance(claim_scope,str):claim_scope=claim_scope.split()
-    app_roles=claims.get('roles',[])
-    if isinstance(app_roles,str):app_roles=[app_roles]
-    claims['_scopes']={str(value) for value in (claim_scope or []) if isinstance(value,str)}
-    claims['_scopes'].update(str(value) for value in (app_roles or []) if isinstance(value,str))
+    # Entra app-only tokens carry resource app roles, while user tokens use scp.
+    claims['_scopes']=_authorized_permissions(claims)
     return claims
 
 ACTION_DOMAIN = {
