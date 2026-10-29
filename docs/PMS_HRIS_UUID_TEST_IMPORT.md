@@ -169,11 +169,23 @@ records → SECTION_MOVE** to create a new location-specific Section instance,
 retaining the old Section instance and personnel history. A Location parent
 move closes the old parent edge and creates a new effective-dated edge.
 
-The existing governance process still requires an independent officer to
-approve/apply submitted corrections. An importer-created administrative
-reference does not automatically approve future manual corrections.
-The complete structure should be reconciled and approved before AD Self-
-Service consumes the dataset.
+The existing governance process still requires an independent reviewer
+to approve/apply submitted corrections. Two development-only logins are
+provided on the isolated SQL Express installation:
+
+- `admin / admin` — creates Location, Section and hierarchy change requests
+- `reviewer / reviewer` — separately approves and applies those requests,
+  without permission to create new changes
+
+Run `bash scripts/enable_test_admin.sh` after updating the code to provision
+both logins. The identities remain disabled in production/AG mode.
+Sign out after submitting a correction, sign in as reviewer, and approve it
+under **Change Approvals**. This retains an auditable maker–checker flow
+rather than silently applying direct edits.
+
+An importer-created administrative reference does not automatically approve
+future manual corrections. The complete structure should be reconciled and
+approved before AD Self-Service consumes the dataset.
 
 Inspect the source and preview the import **without writing to either DB**:
 
