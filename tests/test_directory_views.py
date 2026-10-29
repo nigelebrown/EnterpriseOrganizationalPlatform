@@ -147,3 +147,35 @@ def test_hierarchy_includes_nonselectable_administrative_formations(client, app)
 def test_hierarchy_requires_registry_read_scope(client, app):
     app.state.claims["_scopes"].discard("registry.read")
     assert client.get("/api/v1/registry/location-hierarchy").status_code == 403
+
+def test_contact_directory_joins_authorized_organizational_entities(client, app):
+    from datetime import date
+    seed_data(app)
+    with Session(app.state.engine) as db:
+        sac = db.scalar(select(m.Location).where(m.Location.code == "DEMO-SAC"))
+        contact = m.Contact(kind="PHONE",value="000-0000",visibility="INTERNAL")
+        personal = m.Contact(kind="MOBILE",value="000-9999",visibility="PERSONAL")
+        db.add_all([contact,personal]);db.flush()
+        db.add_all([
+            m.ContactAssignment(contact_id=contact.id,entity_kind="LOCATION",
+                                entity_id=sac.id,purpose="OFFICE",valid_from=date(2020,1,1)),
+            m.ContactAssignment(contact_id=personal.id,entity_kind="LOCATION",
+                                entity_id=sac.id,purpose="PRIVATE",valid_from=date(2020,1,1)),
+        ])
+        db.commit()
+    response = client.get("/api/v1/contacts/directory")
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["value"] == "000-0000"
+    assert items[0]["entityKind"] == "LOCATION"
+    app.state.claims["_scopes"].add("contacts.personal.read")
+    assert len(client.get("/api/v1/contacts/directory").json()["items"]) == 2
+    app.state.claims["_scopes"].remove("contacts.personal.read")
+    with Session(app.state.engine) as db:
+        sac = db.scalar(select(m.Location).where(m.Location.code == "DEMO-SAC"))
+        sac.visibility = "RESTRICTED"
+        db.commit()
+    assert client.get("/api/v1/contacts/directory").json()["items"] == []
+    app.state.claims["_scopes"].remove("contacts.read")
+    assert client.get("/api/v1/contacts/directory").status_code == 403
