@@ -142,3 +142,29 @@ def test_integer_pms_oid_does_not_become_destination_primary_key(app):
         assert cross.canonical_id.version==4
         assert str(cross.canonical_id)!="12345"
         assert db.get(m.Location,cross.canonical_id).id==cross.canonical_id
+
+
+def test_import_first_without_any_location_section_mapping(app):
+    """The actual HRIS_Duplicate shape has flat Sections/Units with no parent references."""
+    source=example_source()
+    for table in ("Areas","Branches","Divisions","Stations","Sections","Units"):
+        for item in source[table]:
+            item["parents"]={}
+    locations,sections,issues=sync.plan(source)
+    review=sync.review_import_plan(locations,sections,issues)
+    assert review["status"]=="IMPORTED_FOR_RECONCILIATION_NOT_APPROVED"
+    assert review["unassignedSectionUnits"]==len(sections)
+    assert review["locationsWithoutParent"]>=4
+    with Session(app.state.engine) as db:
+        result=sync.apply(db,locations,sections,issues)
+        assert result["locationsCreated"]==len(locations)
+        assert result["definitionsCreated"]==2
+        assert result.get("sectionsAssigned",0)==0
+        assert db.query(m.Location).count()==len(locations)
+        assert db.query(m.LocationSection).count()==0
+        assert db.query(m.SectionDefinition).count()==2
+        assert db.query(m.ExternalID).filter(m.ExternalID.source==sync.SOURCE).count()==len(locations)+len(sections)
+        repeat=sync.apply(db,locations,sections,issues)
+        assert repeat.get("locationsCreated",0)==0
+        assert repeat.get("definitionsCreated",0)==0
+        assert db.query(m.Location).count()==len(locations)
