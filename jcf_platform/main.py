@@ -162,13 +162,15 @@ def create_app(database_url=None, *, engine=None):
                                           'registry.restricted.read' in claims['_scopes'],search)}
     @app.get('/api/v1/registry/section-definitions',tags=['Registry'])
     def section_definitions(asOf:date|None=None,search:str='',limit:int=Query(200,ge=1,le=200),
-                            claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
+                            cursor:int=Query(0,ge=0),claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
         at=asOf or date.today()
         definitions=[d for d in db.scalars(select(m.SectionDefinition).order_by(m.SectionDefinition.code)).all() if s.asof(d,at)]
         names=s.names_for(db,m.SectionName,'definition_id',[d.id for d in definitions],at)
         q=search.strip().casefold()
-        return {'items':[{'sectionDefinitionId':str(d.id),'code':d.code,'name':names[d.id]}
-                         for d in definitions if d.id in names and (not q or q in d.code.casefold() or q in names[d.id].casefold())][:limit]}
+        items=[{'sectionDefinitionId':str(d.id),'code':d.code,'name':names[d.id]}
+               for d in definitions if d.id in names and (not q or q in d.code.casefold() or q in names[d.id].casefold())]
+        return {'items':items[cursor:cursor+limit],
+                'nextCursor':str(cursor+limit) if len(items)>cursor+limit else None}
     @app.get('/api/v1/registry/location-sections',tags=['Registry'])
     def location_sections(asOf:date|None=None,locationId:UUID|None=None,search:str='',
                           limit:int=Query(200,ge=1,le=200),cursor:int=Query(0,ge=0),
@@ -211,11 +213,13 @@ def create_app(database_url=None, *, engine=None):
         return {'items':[e for e in entries if not q or q in e['label'].casefold()][:limit]}
     @app.get('/api/v1/facilities/buildings',tags=['Facilities'])
     def buildings(asOf:date|None=None,search:str='',limit:int=Query(200,ge=1,le=200),
-                  claims=Depends(permission('facilities.read')),db:Session=Depends(db_session)):
+                  cursor:int=Query(0,ge=0),claims=Depends(permission('facilities.read')),db:Session=Depends(db_session)):
         at=asOf or date.today();q=search.strip().casefold()
         rows=db.scalars(select(m.Building).order_by(m.Building.code)).all()
-        return {'items':[{'buildingId':str(b.id),'name':b.name,'code':b.code} for b in rows
-                         if s.asof(b,at) and (not q or q in b.name.casefold() or q in b.code.casefold())][:limit]}
+        items=[{'buildingId':str(b.id),'name':b.name,'code':b.code} for b in rows
+               if s.asof(b,at) and (not q or q in b.name.casefold() or q in b.code.casefold())]
+        return {'items':items[cursor:cursor+limit],
+                'nextCursor':str(cursor+limit) if len(items)>cursor+limit else None}
     @app.get('/api/v1/facilities/building-occupancies',tags=['Facilities'])
     def building_occupancies(asOf:date|None=None,buildingId:UUID|None=None,
                              locationId:UUID|None=None,search:str='',
