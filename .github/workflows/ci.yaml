@@ -18,6 +18,7 @@ jobs:
       - name: Validate directory browser code and safe synthetic preview
         run: |
           node --check jcf_platform/admin.js
+          node --check jcf_platform/reconciliation.js
           node scripts/check_admin_preview.mjs
       - name: Validate development-only admin setup syntax
         run: |
