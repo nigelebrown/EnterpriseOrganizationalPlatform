@@ -23,8 +23,8 @@ if [[ "$ACTION" == setup || ! -f "$SECRETS" ]]; then
   fi
   read -r -p "PMS SQL hostname/IP [AD Reset settings: 172.17.51.49]: " host
   if [[ -z "$host" ]];then host=172.17.51.49;fi
-  read -r -p "PMS SQL database [AD Reset settings: HRIS_Copy]: " database
-  if [[ -z "$database" ]];then database=HRIS_Copy;fi
+  read -r -p "PMS SQL database [supplied connection: HRIS_Duplicate]: " database
+  if [[ -z "$database" ]];then database=HRIS_Duplicate;fi
   read -r -p "PMS SQL login [AD Reset settings: HRISUser]: " login
   if [[ -z "$login" ]];then login=HRISUser;fi
   read -r -s -p "PMS READ-ONLY SQL password: " password
@@ -34,12 +34,13 @@ if [[ "$ACTION" == setup || ! -f "$SECRETS" ]]; then
     [[ "$s" != *$'\n'* && "$s" != *$'\r'* ]] || fail "Newlines not supported"
   done
   [[ "$host" != *';'* && "$database" != *';'* ]] || fail "Invalid SQL host or database"
-  read -r -p "Verify PMS SQL Server TLS certificate? [Y/n]: " valid
+  read -r -p "Trust PMS SQL Server certificate (matches supplied connection string)? [Y/n]: " valid
   if [[ -z "$valid" ]];then valid=Y;fi
-  trust=false
+  trust=true
   if [[ "$valid" == n || "$valid" == N ]]; then
-    log "TEST ONLY: SQL certificate validation disabled for the PMS source connection"
-    trust=true
+    trust=false
+  else
+    log "TEST ONLY: PMS SQL certificate validation is disabled, matching supplied AD Reset connection settings"
   fi
   umask 077
   tmp="$(mktemp "$CONFIG_DIR/.pms-source.XXXXXX")"
