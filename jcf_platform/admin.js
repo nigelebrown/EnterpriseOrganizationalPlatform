@@ -1,6 +1,6 @@
 /* OIDC Authorization Code + PKCE, in-memory access token; all writes require separate approval. */
 'use strict';
-const $=s=>document.querySelector(s); let token=null, profile=null, config=null, current='locations';
+const $=s=>document.querySelector(s); let token=null, profile=null, config=null, current='overview';
 const views={overview:['Registry Overview','Explore verified Locations, Sections, Buildings and reporting links'],
  locations:['Location Directory','Select a Location to view assigned Sections/Units, buildings and relationships'],
  sections:['Sections / Units','Standard definitions, with their current Location assignments'],
