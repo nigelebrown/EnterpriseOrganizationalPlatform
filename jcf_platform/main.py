@@ -62,9 +62,15 @@ def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Sec
                               issuer=settings['issuer'],options={'require':['exp','iss','aud','sub']},leeway=30)
     except Exception:
         raise HTTPException(status_code=401,detail='Invalid access token',headers={'WWW-Authenticate':'Bearer'})
+    # Delegated users receive scope/scp; approved application identities receive
+    # Entra app-role values in roles. Both are checked against the verified
+    # issuer/audience/signature above, never trusted from a browser-supplied header.
     claim_scope=claims.get('scope',claims.get('scp',[]))
     if isinstance(claim_scope,str):claim_scope=claim_scope.split()
-    claims['_scopes']=set(claim_scope or [])
+    app_roles=claims.get('roles',[])
+    if isinstance(app_roles,str):app_roles=[app_roles]
+    claims['_scopes']={str(value) for value in (claim_scope or []) if isinstance(value,str)}
+    claims['_scopes'].update(str(value) for value in (app_roles or []) if isinstance(value,str))
     return claims
 
 ACTION_DOMAIN = {
