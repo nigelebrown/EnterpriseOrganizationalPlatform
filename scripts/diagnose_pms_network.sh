@@ -5,19 +5,34 @@ set -Eeuo pipefail
 CFG=/etc/jcf-registry
 fail(){ printf '[PMS diagnostic] ERROR: %s\n' "$*" >&2; exit 1; }
 log(){ printf '[PMS diagnostic] %s\n' "$*"; }
+parse_sql_endpoint(){
+  local value="$1"
+  IP="${value%%,*}"
+  PORT=1433
+  if [[ "$value" == *,* ]]; then PORT="${value##*,}"; fi
+  [[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] ||
+    fail 'Expected PMS SQL IPv4 address'
+  [[ "$PORT" =~ ^[0-9]{1,5}$ ]] ||
+    fail 'Invalid PMS SQL TCP port'
+}
+if [[ "${1:-}" == "--self-test" ]]; then
+  parse_sql_endpoint "172.17.51.49,1433"
+  [[ "$IP" == "172.17.51.49" && "$PORT" == 1433 ]] || fail 'Comma-port parsing regression'
+  parse_sql_endpoint "172.17.51.49"
+  [[ "$IP" == "172.17.51.49" && "$PORT" == 1433 ]] || fail 'Default port parsing regression'
+  parse_sql_endpoint "172.17.51.49,1544"
+  [[ "$PORT" == 1544 ]] || fail 'Custom port parsing regression'
+  log "SQL endpoint parsing passed"
+  exit 0
+fi
 [[ "$EUID" == 0 ]] || fail 'Run as root with sudo'
 [[ -f "$CFG/pms-source.env" && -f "$CFG/deployment.env" ]] ||
   fail 'PMS credentials/deployment not yet configured'
 for bin in python3 docker ip;do command -v "$bin" >/dev/null || fail "Missing $bin";done
 HOST="$(sed -n 's/^PMS_SOURCE_HOST=//p' "$CFG/pms-source.env" | head -1)"
 [[ -n "$HOST" ]] || fail 'PMS_SOURCE_HOST not set'
-# SQL Server host format is "IPv4" or "IPv4,port". Use Bash rather than
-# awk here: the previously used compact awk ternary was invalid on CentOS 9.
-IP="${HOST%%,*}"
-PORT=1433
-if [[ "$HOST" == *,* ]]; then PORT="${HOST##*,}"; fi
-[[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail 'Expected PMS SQL IPv4 address'
-[[ "$PORT" =~ ^[0-9]{1,5}$ ]] || fail 'Invalid PMS SQL TCP port'
+# Source endpoint is parsed without awk, and covered by --self-test.
+parse_sql_endpoint "$HOST"
 log "Testing SQL endpoint $IP:$PORT (password never read)"
 log 'Host route to PMS:'
 ip -4 route get "$IP" || true
