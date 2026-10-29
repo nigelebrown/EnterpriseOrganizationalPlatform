@@ -147,11 +147,33 @@ mounts the checked-out `scripts/` directory into the isolated import
 container as read-only, using the already-installed application image and
 the existing protected source/migration environment files.
 
-The `apply` and `sync` actions now deliberately **stop before any writes**
-when no valid Location–Section assignments exist. A fully populated test
-directory cannot be produced from flat lookup tables without relationship
-information. The production architecture will require approved Location–
-Section mappings, not inference from officers' personal records.
+**Updated import-first test policy:** `apply` and `sync` now accept
+PMS reference records even when there are **zero** Location–Section
+assignments, missing parents, non-standard names or apparent duplicates.
+They import Locations, normalized Section/Unit definitions and only the
+relationships which are verifiable. They do **not** fabricate parent
+assignments or merge ambiguous records, and preserve the original PMS
+identifiers as source cross-references alongside new JCF-EMP UUIDv4 keys.
+
+The import reports `IMPORTED_FOR_RECONCILIATION_NOT_APPROVED` and counts
+orphan Locations, missing Section assignments and potential duplicate names.
+A source with no usable reference records is still rejected. No changes are
+made to PMS/HRIS.
+
+After `sync`, open `https://172.17.102.101/admin`, log in with
+**Local test login**, and choose **Data Reconciliation**. The screen lists
+imported Locations and Sections and offers **Correct name**, **Assign/Move
+parent**, **Assign Section/Unit**, and **Retire duplicate** operations.
+For an existing assigned Section, use **Location–Section Matrix → Manage
+records → SECTION_MOVE** to create a new location-specific Section instance,
+retaining the old Section instance and personnel history. A Location parent
+move closes the old parent edge and creates a new effective-dated edge.
+
+The existing governance process still requires an independent officer to
+approve/apply submitted corrections. An importer-created administrative
+reference does not automatically approve future manual corrections.
+The complete structure should be reconciled and approved before AD Self-
+Service consumes the dataset.
 
 Inspect the source and preview the import **without writing to either DB**:
 
