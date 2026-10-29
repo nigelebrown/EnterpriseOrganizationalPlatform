@@ -47,20 +47,47 @@ for reconciliation, not guessed.
 
 ## Run on CentOS 9 server 172.17.102.101
 
-After `bash install.sh` has completed, run once:
+After `bash install.sh` has completed, first pull the latest importer:
 
 ```bash
 cd /root/EnterpriseOrganizationalPlatform
 git pull --ff-only origin feat/initial-modular-platform
 bash install.sh
-sudo bash scripts/run_pms_sync.sh setup
 ```
 
-The setup prompts locally for the approved PMS SQL host, database, a
-**SELECT-only** SQL username and its password. Historical references are
-`172.17.75.123` and `HRIS_Copy`, which must be verified by your DBA;
-the importer does **not** assume these are current. Save credentials only
-in root-only `/etc/jcf-registry/pms-source.env`, never chat or GitHub.
+The confirmed AD Reset `Api/appsettings.json` source defaults are **SQL
+server 172.17.51.49,1433**, **database HRIS_Copy**, **user HRISUser**. The
+older `172.17.75.123` value was from an unverified historical reference.
+Do **not** commit the password to Git or bundle it into a Docker image.
+
+For **no-prompt** setup, choose either of the following methods:
+
+**Preferred**, if the original AD Reset application ZIP already exists on
+the CentOS server:
+
+```bash
+sudo python3 scripts/configure_pms_source.py \
+  --from-zip /root/JcfAdReset-COMPLETE-2026-10-17.zip
+```
+
+Or if the existing `Api/appsettings.json` file is accessible on the server:
+
+```bash
+sudo python3 scripts/configure_pms_source.py \
+  --from-json /path/to/Api/appsettings.json
+```
+
+The utility reads the existing HRIS password itself and writes it only to
+`/etc/jcf-registry/pms-source.env` with mode `0600`. It prints **no
+password** and accepts a `--password-stdin` alternative for a one-time
+protected server-side paste when the original archive/config file is not on
+the VM. The saved source connection is never passed to the running web
+application and is not modified by later `bash install.sh` upgrades.
+
+The prior interactive `bash scripts/run_pms_sync.sh setup` remains
+available but is not required. The SQL login must have SELECT-only permission
+or be explicitly reviewed by the DBA; merely supplying read-only query code
+does not revoke any preexisting write permissions.
 
 Inspect the source and preview the import **without writing to either DB**:
 
