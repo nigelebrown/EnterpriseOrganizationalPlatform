@@ -25,7 +25,7 @@ jobs:
           bash -n scripts/configure_entra.sh
           bash -n scripts/run_pms_sync.sh
           bash -n scripts/diagnose_pms_network.sh
-          python -m py_compile scripts/pms_registry_sync.py scripts/pms_pdf_directory.py scripts/configure_pms_source.py
+          python -m py_compile scripts/pms_registry_sync.py scripts/pms_pdf_directory.py scripts/configure_pms_source.py scripts/probe_pms_schema.py
       - name: Validate SQL Server 2019 DDL compilation
         run: python scripts/verify_sqlserver_ddl.py
       - name: Validate one-click installer syntax and dry-run
@@ -71,6 +71,7 @@ jobs:
         run: docker build --build-arg INCLUDE_TEST_DEPS=1 -t jcf-platform-ci .
       - name: Verify PMS import module resolution in production container image
         run: |
+          docker run --rm --entrypoint python jcf-platform-ci -m scripts.probe_pms_schema --help
           docker run --rm --entrypoint python jcf-platform-ci -m scripts.pms_registry_sync --help
           docker run --rm --entrypoint python jcf-platform-ci -c 'import scripts.pms_registry_sync, scripts.pms_pdf_directory; assert scripts.pms_pdf_directory.load_candidates()'
       - name: Initialize disposable database (CI only)
