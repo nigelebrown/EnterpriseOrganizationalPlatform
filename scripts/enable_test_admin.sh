@@ -35,7 +35,12 @@ if old_key:
 salt = secrets.token_bytes(24)
 password_digest = hashlib.pbkdf2_hmac("sha256", b"admin", salt, 310000)
 password_hash = f"pbkdf2_sha256:310000:{salt.hex()}:{password_digest.hex()}"
+reviewer_salt = secrets.token_bytes(24)
+reviewer_digest = hashlib.pbkdf2_hmac("sha256", b"reviewer", reviewer_salt, 310000)
+reviewer_hash = f"pbkdf2_sha256:310000:{reviewer_salt.hex()}:{reviewer_digest.hex()}"
 updates = {
+    "ADMIN_LOCAL_TEST_REVIEWER_USERNAME": "reviewer",
+    "ADMIN_LOCAL_TEST_REVIEWER_PASSWORD_HASH": reviewer_hash,
     "ADMIN_LOCAL_TEST_ENABLED": "true",
     "ADMIN_LOCAL_TEST_USERNAME": "admin",
     "ADMIN_LOCAL_TEST_PASSWORD_HASH": password_hash,
@@ -84,5 +89,8 @@ with urllib.request.urlopen(request,timeout=10) as response:
 assert "items" in locations and isinstance(locations["items"],list)
 print("[JCF-EMP TEST ADMIN] Login accepted; protected Location API returned successfully.")
 PY
-say 'SUCCESS. Open https://172.17.102.101/admin -> Sign in -> username admin, password admin'
-say 'Production/AG deployments cannot enable this login. Independent approvals still require another user.'
+say 'SUCCESS. Local development test identities:'
+say '  Maker:    admin / admin'
+say '  Reviewer: reviewer / reviewer'
+say 'Use Local test login on https://172.17.102.101/admin, sign out and switch accounts to approve corrections.'
+say 'Production/AG deployments cannot enable local test identities.'
