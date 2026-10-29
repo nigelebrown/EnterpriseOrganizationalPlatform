@@ -20,7 +20,7 @@ jobs:
           node --check jcf_platform/admin.js
           node scripts/check_admin_preview.mjs
       - name: Validate development-only admin setup syntax
-        run: bash -n scripts/enable_test_admin.sh
+        run: bash -n scripts/enable_test_admin.sh && bash -n scripts/configure_entra.sh
       - name: Validate SQL Server 2019 DDL compilation
         run: python scripts/verify_sqlserver_ddl.py
       - name: Validate one-click installer syntax and dry-run
