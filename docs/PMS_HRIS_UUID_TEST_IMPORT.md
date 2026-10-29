@@ -38,12 +38,20 @@ AD Reset application source identify HRIS SQL Server tables:
 seven tables, filtering out rows with `GCRecord IS NOT NULL`. **No personnel
 information or member assignments are imported.**
 
-Geographic: Portfolio → Area → Division → Station. Nongeographic:
-Portfolio → Branch → Division. Sections and Units are merged into one
-standardized definition catalogue; a separate `LocationSection` UUID exists
-for each approved Location-to-Section/Unit attachment. Conflicts, missing
-parents, duplicate source IDs and unsupported references are reported
-for reconciliation, not guessed.
+**HRIS is a source, not the new data model.** The five HRIS Location
+lookup categories (Portfolios, Areas, Branches, Divisions and Stations)
+are ingested into **one JCF-EMP Locations table**. The old HRIS
+parent/child linkage is considered unreliable and is **not copied**.
+LocationParent is a separate effective-dated relationship table that
+administrators correct through the application's reconciliation workflow.
+
+The HRIS `Sections` and `Units` tables are likewise source-only; both
+are imported into **one JCF-EMP Section/Unit category**. Every distinct
+source Section/Unit gets its own JCF-EMP UUID, even when two source rows have
+the same name. Duplicates are **flagged, not automatically merged**.
+After review, administrators establish the proper local `LocationSection`
+relationships and standardize/reconcile definitions under governance.
+No PMS record numbers become primary keys.
 
 ## Run on CentOS 9 server 172.17.102.101
 
@@ -150,10 +158,13 @@ the existing protected source/migration environment files.
 **Updated import-first test policy:** `apply` and `sync` now accept
 PMS reference records even when there are **zero** Location–Section
 assignments, missing parents, non-standard names or apparent duplicates.
-They import Locations, normalized Section/Unit definitions and only the
-relationships which are verifiable. They do **not** fabricate parent
-assignments or merge ambiguous records, and preserve the original PMS
-identifiers as source cross-references alongside new JCF-EMP UUIDv4 keys.
+They import Locations and distinct source Section/Unit records without
+importing **any** HRIS parent/child or Section assignment relationships.
+Administrators create the correct links in JCF-EMP, and the original PMS
+identifiers are preserved as source cross-references alongside independent
+JCF-EMP UUIDv4 keys. An earlier failed import may have left some valid
+JCF-EMP relationship records, which the new importer will not automatically
+delete or rewrite; review those in the GUI before approving them.
 
 The import reports `IMPORTED_FOR_RECONCILIATION_NOT_APPROVED` and counts
 orphan Locations, missing Section assignments and potential duplicate names.
@@ -235,3 +246,13 @@ it. The PDF may omit locations and contain old or handwritten contact details.
 
 Do not run against the live HRIS with write credentials. Do not publish or
 upload SQL passwords, full connection strings or personal data.
+
+## Test-import audit correlation fix (29 October 2026)
+
+SQL Server `audit_event.correlation_id` is 80 characters. Earlier PMS sync
+attempts generated longer values and failed when logging parent-link changes.
+The importer now uses stable `pms:<sha256-digest>` identifiers within the
+column's capacity. Idempotency keys and source-ID crosswalks are unchanged;
+rerunning the test import reuses existing records and does not require a database
+reset or password re-entry. Use `bash scripts/run_pms_sync.sh verify` to
+review the crosswalk after import.
