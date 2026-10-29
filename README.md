@@ -101,6 +101,36 @@ See [installation recovery](docs/INSTALLATION.md).
 - Do not attempt Always On AG failover tests on Express; use Enterprise or Basic AG capable
   Standard infrastructure as licensed/approved.
 
+## Temporary local administrator for isolated SQL Express testing
+
+For the current **CentOS development/test installation only**, enable a
+simple local administrator with username `admin` and password `admin`:
+
+```bash
+cd /root/EnterpriseOrganizationalPlatform
+git pull --ff-only origin feat/initial-modular-platform
+bash scripts/enable_test_admin.sh
+```
+
+The setup script verifies `INSTALL_MODE=local-express`,
+`APP_ENV=development`, the local Docker SQL2019 Express host and disabled
+AG mode; it refuses external/production installs. It hashes the test password
+and generates a private signing key in the existing root-only
+`/etc/jcf-registry/runtime.env`. It runs the normal upgrade installer, which
+preserves existing database data, and verifies that the test login was enabled.
+
+Open `https://172.17.102.101/admin`, click **Sign in**, enter `admin`
+and `admin`, and browse the live seeded Locations, Sections, Buildings and
+reporting relationships. The 1-hour test bearer token is in browser memory
+only. The JWT is trusted only by the local development-mode API; production
+remains OIDC/Entra ID-only. Access to seeded data is **not** anonymously
+exposed. Independent approval rules remain enforced and a test admin cannot
+approve their own submitted change request.
+
+This weak test password is explicitly for a controlled, isolated test
+system. Replace the self-signed test certificate and configure real Entra ID
+before using actual JCF organizational or personnel records.
+
 ## Location hierarchy and organizational directory views
 
 The administration GUI at `/admin` now prioritizes **read-only, searchable
