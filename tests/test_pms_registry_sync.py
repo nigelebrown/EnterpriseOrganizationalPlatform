@@ -129,6 +129,7 @@ def test_integer_pms_oid_does_not_become_destination_primary_key(app):
     source_row=src["Portfolios"][0]
     source_row["id"]="12345"
     src["Areas"][0]["parents"]["Portfolio"]="12345"
+    src["Branches"][0]["parents"]["PortfolioName"]="12345"
     locs,units,issues=sync.plan(src)
     assert not issues
     with Session(app.state.engine) as db:
