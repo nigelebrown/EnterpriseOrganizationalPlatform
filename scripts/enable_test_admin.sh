@@ -61,5 +61,28 @@ say 'Verifying local test identity advertised through API'
 curl -fsS --max-time 12 http://127.0.0.1:8080/api/v1/admin/oidc-config | \
   python3 -c 'import json,sys; assert json.load(sys.stdin)["localTestEnabled"] is True' ||
   fail 'Local test login is not enabled; inspect application logs'
+say 'Performing authenticated end-to-end directory check'
+python3 - <<'PY'
+import json
+import urllib.request
+
+base = "http://127.0.0.1:8080"
+login = urllib.request.Request(
+    base+"/api/v1/admin/local-test-login",
+    data=json.dumps({"username":"admin","password":"admin"}).encode("utf-8"),
+    headers={"Content-Type":"application/json"},
+    method="POST",
+)
+with urllib.request.urlopen(login,timeout=10) as response:
+    token = json.load(response)["access_token"]
+request = urllib.request.Request(
+    base+"/api/v1/registry/locations?limit=1",
+    headers={"Authorization":"Bearer "+token},
+)
+with urllib.request.urlopen(request,timeout=10) as response:
+    locations = json.load(response)
+assert "items" in locations and isinstance(locations["items"],list)
+print("[JCF-EMP TEST ADMIN] Login accepted; protected Location API returned successfully.")
+PY
 say 'SUCCESS. Open https://172.17.102.101/admin -> Sign in -> username admin, password admin'
 say 'Production/AG deployments cannot enable this login. Independent approvals still require another user.'
