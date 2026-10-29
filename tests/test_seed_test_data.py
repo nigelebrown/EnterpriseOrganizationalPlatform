@@ -11,7 +11,7 @@ def test_seed_first_run_and_repeat(client, app):
     with Session(app.state.engine) as db:
         result = seed.seed_fixture(db)
         assert result["locations"] == 12
-        assert result["sections"] == 5
+        assert result["sections"] == 9
         assert result["attachments"] == 16
         assert result["reporting"] == 10
         assert result["personnel"] == 3
