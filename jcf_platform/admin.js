@@ -35,7 +35,7 @@ const schema={
  POSTING_CREATE:[['personnelId','uuid'],['locationId','uuid'],['sectionId','uuid'],['validFrom','date'],['validTo','date'],['isPrimary','checkbox']],
  LEAVE_REQUEST:[['personnelId','uuid'],['category','text'],['startsOn','date'],['endsBefore','date']],
  BATCH_REGISTER:[['operations','json']]};
-function text(tag,value){let n=document.createElement(tag);n.textContent=String(value??'');return n}
+function text(tag,value){let n=document.createElement(tag);n.textContent=String(value??'').replace(/\[TEST\]\s*/g,'');return n}
 function button(label,fn){let b=text('button',label);b.type='button';b.addEventListener('click',fn);return b}
 function alertMsg(msg){$('#alert').textContent=msg}
 const rand=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');
@@ -134,10 +134,11 @@ function setupForm(){let sel=$('#action');sel.replaceChildren();for(const action
 
 /* Directory views are READ-ONLY; preview is synthetic in-browser data, NEVER database data. */
 let previewMode=false, directoryCache=null, viewGeneration=0;
+function cleanLabel(value){return String(value??'').replace(/\[TEST\]\s*/g,'')}
 function ui(tag,className,label){
  const el=document.createElement(tag);
  if(className)el.className=className;
- if(label!==undefined)el.textContent=String(label);
+ if(label!==undefined)el.textContent=cleanLabel(label);
  return el;
 }
 function sampleSnapshot(){
@@ -196,7 +197,10 @@ function sampleSnapshot(){
   return {...loc,parentLocationId:parentTokens[token]?locByCode[parentTokens[token]].locationId:null,
    selectable:true};
  });
- return {locations,hierarchy,sections,mappings,buildings,occupancies,reporting,unavailable:[],preview:true};
+ const contacts=[{contactAssignmentId:'sample-contact-SAC',entityKind:'LOCATION',
+  entityId:locByCode.SAC.locationId,kind:'EMAIL',
+  value:'test-registry@example.invalid',purpose:'TEST_DIRECTORY',telephoneSystem:null}];
+ return {locations,hierarchy,sections,mappings,buildings,occupancies,reporting,contacts,unavailable:[],preview:true};
 }
 async function loadPaged(path){
  let items=[],cursor=null;
@@ -218,7 +222,8 @@ async function liveSnapshot(){
   ['mappings','/api/v1/registry/location-sections'],
   ['buildings','/api/v1/facilities/buildings'],
   ['occupancies','/api/v1/facilities/building-occupancies'],
-  ['reporting','/api/v1/reporting/relationships']];
+  ['reporting','/api/v1/reporting/relationships'],
+  ['contacts','/api/v1/contacts/directory']];
  const results=await Promise.allSettled(requested.map(x=>loadPaged(x[1])));
  if(results[0].status==='rejected')throw Error('Unable to load Locations: '+results[0].reason.message);
  const out={preview:false,unavailable:[]};
@@ -228,6 +233,21 @@ async function liveSnapshot(){
  });
  return out;
 }
+/* Facility addresses and contacts remain owned by independent services/models. */
+function contactsFor(d,entityKind,entityId){
+ return (d.contacts||[]).filter(c=>c.entityKind===entityKind&&c.entityId===entityId);
+}
+function locationContacts(d,loc){
+ const sectionIds=new Set(d.mappings.filter(s=>s.locationId===loc.locationId).map(s=>s.sectionId));
+ const buildingIds=new Set(d.occupancies.filter(o=>o.locationId===loc.locationId).map(o=>o.buildingId));
+ return (d.contacts||[]).filter(c=>
+  (c.entityKind==='LOCATION'&&c.entityId===loc.locationId)||
+  (c.entityKind==='LOCATION_SECTION'&&sectionIds.has(c.entityId))||
+  (c.entityKind==='BUILDING'&&buildingIds.has(c.entityId)));
+}
+function addressFor(o){return [o.address,o.parish].filter(Boolean).join(', ')||'Not recorded'}
+function sourceStatus(code){return code&&code.startsWith('DEMO-')?'Demo record':'Registry record'}
+
 function sectionTitle(pane,name,detail){
  const h=ui('div','section-title');h.append(ui('h2','',name));
  if(detail)h.append(ui('p','',detail));pane.append(h);
@@ -255,7 +275,7 @@ function dataTable(pane,columns,items){
   const row=document.createElement('tr');
   for(const [,getter] of columns){
    const cell=document.createElement('td'),value=getter(item);
-   if(value instanceof Node)cell.append(value);else cell.textContent=String(value??'—');
+   if(value instanceof Node)cell.append(value);else cell.textContent=cleanLabel(value??'—');
    row.append(cell);
   }
   body.append(row);
@@ -374,7 +394,7 @@ function locationView(pane,d){
      }
      return li;
     }
-    for(const root of roots.filter(visibleBranch)){const item=branch(root,0);if(item)rootList.append(item)}
+    for(const root of roots.filter(root=>visibleBranch(root))){const item=branch(root,0);if(item)rootList.append(item)}
     // Ensure collapsed descendants are not accidentally rendered as roots.
     // Only genuinely disconnected/cyclic records are given a fallback root.
     const reachable=new Set();
@@ -500,7 +520,7 @@ async function loadView(){
  setupForm();
  $('#manage-panel').hidden=previewMode||!token||(actions[current]||[]).length===0;
  $('#mode-note').textContent=previewMode
-  ? 'SAMPLE PREVIEW · Fictional [TEST] records only. These are NOT live database results; changes are disabled.'
+  ? 'SAMPLE PREVIEW · Fictional data shown with clean labels. Not the approved JCF registry; changes disabled.'
   : token?'LIVE DIRECTORY · Visible results depend on your assigned permissions.'
   : 'SIGN-IN REQUIRED · The live registry is protected. Select Preview sample to inspect the interface without accessing JCF records.';
  if(!token&&!previewMode){
