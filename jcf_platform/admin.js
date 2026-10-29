@@ -600,6 +600,14 @@ async function loadView(){
     alertMsg(data.operations.length+' valid operations and '+data.errors.length+' errors. Review before submitting for approval.');
    }));return;
   }
+  if(current==='reconciliation'){
+   pane.replaceChildren();
+   if(previewMode){empty(pane,'The reconciliation queue shows actual imported PMS data. Sign in to view and correct records.');return}
+   const result=await api('/api/v1/registry/reconciliation');
+   if(generation!==viewGeneration)return;
+   reconciliationView(pane,result);
+   return;
+  }
   if(current==='personnel'){
    pane.replaceChildren();
    empty(pane,'A searchable cross-entity listing is not yet available for this module. Its existing authorized entity-level APIs and change workflow remain in place.');
