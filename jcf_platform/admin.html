@@ -13,6 +13,7 @@
 <div class="layout"><nav aria-label="Main menu"><div class="nav-label">REGISTRY & DIRECTORY</div><button data-view="overview" class="active">Overview</button><button data-view="locations">Location Hierarchy</button>
 <button data-view="sections">Sections / Units</button><button data-view="mappings">Location–Section Matrix</button>
 <button data-view="reporting">Reporting Lines</button><button data-view="facilities">Buildings & Locations</button>
+<div class="nav-label">DATA QUALITY & CONTROL</div><button data-view="reconciliation">Data Reconciliation</button>
 <div class="nav-label">OPERATIONS & CONTROL</div><button data-view="contacts">Contact Directory</button><button data-view="personnel">Personnel & Postings</button>
 <button data-view="approval">Change Approvals</button><button data-view="import">Bulk Excel / CSV Import</button>
 <a href="/api/openapi.json" target="_blank" rel="noopener">OpenAPI contract</a></nav>
@@ -23,4 +24,5 @@
 <form id="changeForm"><label>Change type<select id="action"></select></label><div id="fields"></div>
 <label>Authority / Force Order reference<input id="reference" required minlength="3" placeholder="Approved administrative reference"></label>
 <button type="submit" class="primary">Submit change request</button></form></details></main></div>
+<script src="/assets/reconciliation.js" defer></script>
 <script src="/assets/admin.js" defer></script></body></html>
