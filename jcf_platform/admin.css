@@ -104,3 +104,13 @@ header{position:relative}
 #local-login-form small{color:#697c8b;font-size:11px;line-height:1.5}
 .local-login-actions{display:flex;gap:8px}
 .local-login-actions button{flex:1}
+
+
+/* PMS imported-data correction queue */
+.recon-issue{font-size:11px;padding:4px 8px;margin:2px 0;background:#fff3e3;
+ color:#835511;border-radius:5px;border:1px solid #f2ddbd;white-space:nowrap}
+.recon-actions{display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;min-width:205px}
+.recon-actions button{background:#eff6fc;color:#215676;border:1px solid #c6dfec;
+ padding:6px 9px;border-radius:6px;font-size:11px;white-space:nowrap}
+.recon-actions button:hover{background:#dceef8}
+.registry-reference{display:block;color:#697f8e;font-size:11px;margin-top:6px;overflow-wrap:anywhere}
