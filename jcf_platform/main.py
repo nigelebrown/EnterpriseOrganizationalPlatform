@@ -222,6 +222,12 @@ def create_app(database_url=None, *, engine=None):
             if name:
                 key=(loc.location_type,' '.join(name.casefold().split()))
                 all_names.setdefault(key,[]).append(loc.id)
+        all_section_names={}
+        for definition in defs:
+            name=def_names.get(definition.id)
+            if name:
+                key=' '.join(name.casefold().split())
+                all_section_names.setdefault(key,[]).append(definition.id)
         items=[]
         for loc in locs:
             if loc.id not in source_locs or loc.id not in loc_names:continue
@@ -241,9 +247,15 @@ def create_app(database_url=None, *, engine=None):
             name=def_names[defin.id]
             issues=[]
             if defin.id not in sections_attached:issues.append('NO_LOCATION_ASSIGNMENT')
+            same_name=all_section_names.get(' '.join(name.casefold().split()),[])
+            # Only compare visible imported PMS definitions; do not disclose
+            # unrelated or restricted organizational identifiers.
+            imported_same=[identity for identity in same_name if identity in source_defs]
+            if len(imported_same)>1:issues.append('POTENTIAL_DUPLICATE_NAME')
             items.append({'entityType':'SECTION_UNIT','id':str(defin.id),'name':name,
                           'code':defin.code,'locationType':None,'parentLocationId':None,
-                          'potentialDuplicateIds':[],'issues':issues,
+                          'potentialDuplicateIds':[str(x) for x in imported_same if x!=defin.id],
+                          'issues':issues,
                           'status':'IMPORTED_FOR_REVIEW'})
         items.sort(key=lambda row:(row['entityType'],row['name'].casefold(),row['id']))
         totals={'importedLocations':sum(x['entityType']=='LOCATION' for x in items),
