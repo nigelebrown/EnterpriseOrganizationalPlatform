@@ -70,7 +70,7 @@ run(){
  docker run --rm --network jcf-enterprise_default \
     --env-file "$CONFIG_DIR/migration.env" \
     --env-file "$SECRETS" \
-    --entrypoint python "$image" scripts/pms_registry_sync.py "$@"
+    --entrypoint python "$image" -m scripts.pms_registry_sync "$@"
 }
 case "$ACTION" in
  inspect)run inspect;;
