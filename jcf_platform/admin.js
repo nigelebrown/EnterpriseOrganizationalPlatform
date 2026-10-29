@@ -41,12 +41,40 @@ function alertMsg(msg){$('#alert').textContent=msg}
 const rand=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,'0')).join('');
 function b64url(buffer){return btoa(String.fromCharCode(...new Uint8Array(buffer))).replaceAll('+','-').replaceAll('/','_').replaceAll('=','')}
 async function signIn(){config=await (await fetch('/api/v1/admin/oidc-config')).json();
+ if(config.localTestEnabled){$('#local-login-form').hidden=false;$('#local-username').focus();return}
  if(!config.clientId||!config.authorizationEndpoint||!config.tokenEndpoint){alertMsg('OIDC client configuration is required on the server.');return}
  const verifier=b64url(crypto.getRandomValues(new Uint8Array(32)));const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(verifier));
  const state=rand();sessionStorage.setItem('jcf_pkce',JSON.stringify({verifier,state,at:Date.now()}));
  const url=new URL(config.authorizationEndpoint);url.search=new URLSearchParams({response_type:'code',client_id:config.clientId,
   redirect_uri:config.redirectUri||location.origin+'/admin',scope:config.scope,state,code_challenge:b64url(digest),code_challenge_method:'S256'});
  location.assign(url.toString());}
+async function localSignIn(event){
+ event.preventDefault();alertMsg('');
+ const submit=$('#local-login-form button[type="submit"]');
+ submit.disabled=true;
+ try{
+  const username=$('#local-username').value,password=$('#local-password').value;
+  const response=await fetch('/api/v1/admin/local-test-login',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   cache:'no-store',body:JSON.stringify({username,password})
+  });
+  const data=await response.json();
+  if(!response.ok)throw Error(data.detail||'Test login failed');
+  if(!data.access_token)throw Error('No access token received');
+  token=data.access_token;
+  profile={preferred_username:username,name:'Development Test Administrator'};
+  previewMode=false;
+  directoryCache=null;
+  $('#identity').textContent='Test admin: '+username;
+  $('#preview').textContent='Preview sample';
+  $('#local-login-form').reset();
+  $('#local-login-form').hidden=true;
+  $('#login').hidden=true;
+  $('#logout').hidden=false;
+  await loadView();
+ }catch(error){alertMsg(error.message)}
+ finally{submit.disabled=false}
+}
 async function authCallback(){const p=new URLSearchParams(location.search);if(!p.has('code'))return;
  config=await (await fetch('/api/v1/admin/oidc-config')).json();let transaction=JSON.parse(sessionStorage.getItem('jcf_pkce')||'null');sessionStorage.removeItem('jcf_pkce');
  history.replaceState({},'',location.pathname);
@@ -542,9 +570,12 @@ $('#changeForm').onsubmit=async e=>{e.preventDefault();try{const action=$('#acti
  alertMsg('Submitted for independent approval: '+r.changeRequestId);$('#reference').value='';}catch(err){alertMsg(err.message)}};
 for(const btn of document.querySelectorAll('nav [data-view]'))btn.onclick=()=>{current=btn.dataset.view;
  document.querySelectorAll('nav [data-view]').forEach(x=>x.classList.toggle('active',x===btn));loadView()};
+$('#local-login-form').onsubmit=localSignIn;
+$('#local-login-cancel').onclick=()=>{$('#local-login-form').hidden=true;$('#local-login-form').reset();alertMsg('')};
 $('#refresh').onclick=()=>{directoryCache=null;loadView()};
 $('#preview').onclick=()=>{previewMode=!previewMode;directoryCache=null;
  $('#preview').textContent=previewMode?'Exit sample preview':'Preview sample';loadView()};
 $('#login').onclick=signIn;$('#logout').onclick=()=>{token=null;profile=null;$('#identity').textContent='Not signed in';
+ $('#local-login-form').hidden=true;$('#local-login-form').reset();
  $('#login').hidden=false;$('#logout').hidden=true;directoryCache=null;previewMode=false;loadView()};
 (async()=>{try{await authCallback()}catch(e){alertMsg(e.message)}loadView()})();
