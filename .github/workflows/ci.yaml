@@ -15,6 +15,10 @@ jobs:
         run: pip install -e '.[test]'
       - name: Unit and HTTP end-to-end acceptance tests (SQLite isolated)
         run: python -m pytest tests -q
+      - name: Validate directory browser code and safe synthetic preview
+        run: |
+          node --check jcf_platform/admin.js
+          node scripts/check_admin_preview.mjs
       - name: Validate SQL Server 2019 DDL compilation
         run: python scripts/verify_sqlserver_ddl.py
       - name: Validate one-click installer syntax and dry-run
