@@ -1,0 +1,139 @@
+name: Registry CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install dependencies
+        run: pip install -e '.[test]'
+      - name: Unit and HTTP end-to-end acceptance tests (SQLite isolated)
+        run: python -m pytest tests -q
+      - name: Validate directory browser code and safe synthetic preview
+        run: |
+          node --check jcf_platform/admin.js
+          node --check jcf_platform/reconciliation.js
+          node scripts/check_admin_preview.mjs
+      - name: Validate development-only admin setup syntax
+        run: |
+          bash -n scripts/enable_test_admin.sh
+          bash -n scripts/configure_entra.sh
+          bash -n scripts/run_pms_sync.sh
+          bash -n scripts/diagnose_pms_network.sh
+          python -m py_compile scripts/pms_registry_sync.py scripts/pms_pdf_directory.py scripts/configure_pms_source.py scripts/probe_pms_schema.py scripts/pms_relationship_evidence.py
+      - name: Validate SQL Server 2019 DDL compilation
+        run: python scripts/verify_sqlserver_ddl.py
+      - name: Validate one-click installer syntax and dry-run
+        run: bash -n install.sh && bash install.sh --dry-run --mode local-express
+      - name: Validate HTTPS proxy installer shell syntax and CLI
+        run: |
+          bash -n scripts/install_reverse_proxy.sh
+          bash scripts/install_reverse_proxy.sh --help | grep -q 'Nginx HTTPS proxy'
+      - name: CentOS Stream 9 container shell and dry-run smoke test
+        run: |
+          docker run --rm -v "$PWD:/workspace:ro" -w /workspace \
+            quay.io/centos/centos:stream9 bash -c \
+            'set -e; . /etc/os-release; test "$ID" = centos; test "$VERSION_ID" = 9; bash -n install.sh; bash install.sh --dry-run --mode local-express'
+  # AG listener failover, SQL Server Express live tests, OIDC/AD and penetration tests require
+  # JCF-controlled runners and secrets. They are *mandatory release gates*, not CI passes here.
+  sql2019-express:
+    name: Real SQL Server 2019 Express on Linux
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2019-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_SA_PASSWORD: 'CiOnly_StrongPass_2026!'
+          MSSQL_PID: 'Express'
+        ports:
+          - 1433:1433
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Docker Compose deployment configuration
+        run: |
+          python scripts/init_install_config.py /tmp/jcf-config
+          cat >/tmp/jcf-config/deployment.env <<'ENV'
+          JCF_IMAGE_TAG=ci
+          JCF_RUNTIME_ENV=/tmp/jcf-config/runtime.env
+          JCF_MIGRATE_ENV=/tmp/jcf-config/migration.env
+          JCF_SQL_ENV=/tmp/jcf-config/sqlserver.env
+          JCF_SETUP_ENV=/tmp/jcf-config/setup.env
+          JCF_APP_PORT=8080
+          ENV
+          docker compose --project-name jcf-enterprise --env-file /tmp/jcf-config/deployment.env -f deploy/compose.yaml config --quiet
+      - name: Build Linux app container with Microsoft ODBC Driver 18
+        run: docker build --build-arg INCLUDE_TEST_DEPS=1 -t jcf-platform-ci .
+      - name: Verify PMS import module resolution in production container image
+        run: |
+          docker run --rm --entrypoint python jcf-platform-ci -m scripts.probe_pms_schema --help
+          docker run --rm --entrypoint python jcf-platform-ci -c 'import scripts.pms_relationship_evidence as m; assert len(m.LINK_TABLES)==8'
+          docker run --rm --entrypoint python jcf-platform-ci -m scripts.pms_registry_sync --help
+          docker run --rm --entrypoint python jcf-platform-ci -c 'import scripts.pms_registry_sync, scripts.pms_pdf_directory; assert scripts.pms_pdf_directory.load_candidates()'
+      - name: Initialize disposable database (CI only)
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e CI_EPHEMERAL_DB=YES -e CI_SQL_HOST=127.0.0.1,1433 \
+            -e CI_SQL_SA_PASSWORD='CiOnly_StrongPass_2026!' \
+            --entrypoint python jcf-platform-ci scripts/ci_create_sql_test_db.py
+      - name: Exercise local one-click SQL provisioning and verified native backup
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e CI_EPHEMERAL_DB=YES -e DB_HOST=127.0.0.1,1433 -e DB_NAME=JcfEnterpriseSetup_TEST \
+            -e MSSQL_SA_PASSWORD='CiOnly_StrongPass_2026!' \
+            -e JCF_APP_USER=jcf_ci_app -e JCF_APP_PASSWORD='Ci_App_StrongPass_2026!' \
+            -e JCF_MIGRATE_USER=jcf_ci_migrate -e JCF_MIGRATE_PASSWORD='Ci_Migrate_StrongPass_2026!' \
+            --entrypoint python jcf-platform-ci scripts/ci_verify_db_admin_sql2019.py
+      - name: Run live SQL Server 2019 governed onboarding tests
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e ALLOW_DESTRUCTIVE_TEST_DDL=YES \
+            -e TEST_SQLSERVER_URL='mssql+pyodbc://sa:CiOnly_StrongPass_2026!@127.0.0.1:1433/JcfEnterprise_TEST?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes' \
+            --entrypoint python jcf-platform-ci scripts/sql2019_express_integration.py
+
+      - name: Verify actual Alembic installation and repeat upgrade on SQL Server 2019 Express
+        run: |
+          docker run --rm --network host -v "$PWD:/workspace:ro" -w /workspace \
+            -e APP_ENV=development -e CI_EPHEMERAL_DB=YES \
+            -e DATABASE_URL='mssql+pyodbc://sa:CiOnly_StrongPass_2026!@127.0.0.1:1433/JcfEnterpriseMigration_TEST?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes' \
+            --entrypoint python jcf-platform-ci scripts/ci_verify_alembic_sql2019.py
+
+  installer-end-to-end:
+    name: Fresh Linux VM installer and repeat upgrade
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: First run — provision application and real SQL2019 Express
+        run: sudo bash install.sh --mode local-express
+      - name: Verify synthetic JCF-EMP samples on first install
+        run: |
+          sudo docker compose --project-name jcf-enterprise \
+            --env-file /etc/jcf-registry/deployment.env \
+            -f deploy/compose.yaml --profile maintenance run --rm --no-deps \
+            migrate scripts/seed_test_data.py --verify
+      - name: Second run — backup and non-destructive repeat upgrade
+        run: sudo bash install.sh
+      - name: Verify sample data survived repeat install
+        run: |
+          sudo docker compose --project-name jcf-enterprise \
+            --env-file /etc/jcf-registry/deployment.env \
+            -f deploy/compose.yaml --profile maintenance run --rm --no-deps \
+            migrate scripts/seed_test_data.py --verify
+      - name: Confirm existing SQL records and healthy application
+        run: |
+          sudo docker compose --project-name jcf-enterprise \
+            --env-file /etc/jcf-registry/deployment.env \
+            -f deploy/compose.yaml ps
+          cid=$(sudo docker compose --project-name jcf-enterprise \
+            --env-file /etc/jcf-registry/deployment.env \
+            -f deploy/compose.yaml ps -q registry)
+          test "$(sudo docker inspect -f '{{.State.Health.Status}}' "$cid")" = healthy
+          sudo test -f /etc/jcf-registry/runtime.env
+          test "$(sudo stat -c %a /etc/jcf-registry/runtime.env)" = 600

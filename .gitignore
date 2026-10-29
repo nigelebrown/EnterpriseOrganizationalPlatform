@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite
+*.db
+.env
+.venv/
+*.log
+*.bak
+build/
+dist/
+
+# Local JCF CA files are deployment inputs, not committed source
+deploy/ca/*.crt

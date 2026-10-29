@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JCF Enterprise Management Platform (JCF-EMP)</title><link rel="stylesheet" href="/assets/admin.css"></head>
+<body><header><div><strong>JCF</strong><span> Enterprise Management Platform (JCF-EMP)</span><small>One Platform. Standardized Data. Integrated Services.</small></div>
+<div class="toolbar"><span id="identity">Not signed in</span><button id="preview" type="button" title="Visual layout preview; fictional data only">Preview sample</button><button id="login" type="button">Microsoft Entra ID</button><button id="local-login-open" type="button" hidden>Local test login</button><button id="logout" hidden>Sign out</button></div>
+<form id="local-login-form" hidden autocomplete="off">
+  <strong>Local test administrator</strong>
+  <label>Username<input id="local-username" name="username" autocomplete="username" required></label>
+  <label>Password<input id="local-password" name="password" type="password" autocomplete="current-password" required></label>
+  <div class="local-login-actions"><button type="submit" class="primary">Log in</button><button id="local-login-cancel" type="button">Cancel</button></div>
+  <small>Development database only. Authentication remains separate from the four-eyes approval workflow.</small>
+</form></header>
+<div class="layout"><nav aria-label="Main menu"><div class="nav-label">REGISTRY & DIRECTORY</div><button data-view="overview" class="active">Overview</button><button data-view="locations">Location Hierarchy</button>
+<button data-view="sections">Sections / Units</button><button data-view="mappings">Location–Section Matrix</button>
+<button data-view="reporting">Reporting Lines</button><button data-view="facilities">Buildings & Locations</button>
+<div class="nav-label">DATA QUALITY & CONTROL</div><button data-view="reconciliation">Data Reconciliation</button>
+<div class="nav-label">OPERATIONS & CONTROL</div><button data-view="contacts">Contact Directory</button><button data-view="personnel">Personnel & Postings</button>
+<button data-view="approval">Change Approvals</button><button data-view="import">Bulk Excel / CSV Import</button>
+<a href="/api/openapi.json" target="_blank" rel="noopener">OpenAPI contract</a></nav>
+<main><div class="head"><div><p class="eyebrow">MANAGEMENT CONSOLE</p><h1 id="view-title">Overview</h1>
+<p id="view-description">Standardized organizational master data</p></div><button id="refresh">Refresh</button></div>
+<div id="alert" role="status"></div><div id="mode-note" role="status"></div><section class="pane" id="results"><p>Sign in to view the Registry or select Preview sample for a read-only demonstration.</p></section>
+<details class="pane manage-panel" id="manage-panel"><summary>Manage records / submit a change for approval</summary><p>Changes are not applied until a different authorized officer approves them. Preview data cannot be modified.</p>
+<form id="changeForm"><label>Change type<select id="action"></select></label><div id="fields"></div>
+<label>Authority / Force Order reference<input id="reference" required minlength="3" placeholder="Approved administrative reference"></label>
+<button type="submit" class="primary">Submit change request</button></form></details></main></div>
+<script src="/assets/reconciliation.js" defer></script>
+<script src="/assets/admin.js" defer></script></body></html>

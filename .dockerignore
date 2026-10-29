@@ -1,0 +1,11 @@
+.git
+__pycache__
+.pytest_cache
+*.sqlite
+*.db
+*.env
+.venv
+.tmp
+build
+*.zip
+tests
