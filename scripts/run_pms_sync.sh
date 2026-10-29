@@ -70,13 +70,13 @@ run(){
 }
 case "$ACTION" in
  inspect)run inspect;;
- preview)run preview;;
+ preview)run preview --include-pdf;;
  verify)run verify;;
- apply)run apply --confirm-test-import;;
+ apply)run apply --confirm-test-import --include-pdf;;
  sync)
     log "Extracting PMS read-only organizational data; reporting unresolved relationships"
-    run preview
+    run preview --include-pdf
     log "Applying TEST sync; unresolved hierarchy links remain unassigned"
-    run apply --confirm-test-import
+    run apply --confirm-test-import --include-pdf
     run verify;;
 esac
