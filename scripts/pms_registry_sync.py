@@ -214,16 +214,27 @@ def plan(source):
     return locs, sections, errors
 
 
+def import_correlation(key: str) -> str:
+    """Stable, unique, <=80-character SQL Server audit_event.correlation_id.
+
+    Source identities and human-readable import keys can exceed SQL Server's
+    NVARCHAR(80) field. Store a deterministic digest as the correlation ID;
+    the full source Oid remains available in the ExternalID crosswalk.
+    """
+    return "pms:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:48]
+
+
 def change(db, action, payload, key):
     idem="pms-sync-"+hashlib.sha256(key.encode()).hexdigest()[:48]
+    correlation=import_correlation(key)
     request=svc.create_request(db,action,payload,REFERENCE,REQUESTER,idem)
     if request.status == "SUBMITTED":
-        svc.decide_request(db,request.id,"APPROVED",APPROVER,"pms-sync:"+key)
+        svc.decide_request(db,request.id,"APPROVED",APPROVER,correlation)
     if request.status == "APPLIED":
         raise RuntimeError(f"Stale applied request but record missing: {key}")
     if request.status != "APPROVED":
         raise RuntimeError(f"Review interrupted/rejected change: {key}")
-    return svc.apply_request(db,request.id,APPLIER,"pms-sync:"+key)
+    return svc.apply_request(db,request.id,APPLIER,correlation)
 
 
 def external_id(db,kind,oid,canonical):
