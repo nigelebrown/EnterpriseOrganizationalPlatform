@@ -10,21 +10,27 @@ const views={overview:['Registry Overview','Explore verified Locations, Sections
  contacts:['Contact Directory','Entity-scoped contact numbers and extensions'],
  personnel:['Personnel & Postings','Only official verified assignments become HRIS postings'],
  approval:['Change Approvals','Four-eyes validation and independent decision'],
- import:['Bulk Excel / CSV Import','Preview spreadsheet records; changes still require approval']};
-const actions={locations:['LOCATION_CREATE','LOCATION_RENAME','LOCATION_RETIRE','LOCATION_PARENT','LOCATION_PARENT_CLOSE','LOCATION_ALIAS'],
- sections:['SECTION_DEFINE','SECTION_RENAME','SECTION_ALIAS','SECTION_RETIRE'],mappings:['SECTION_ATTACH'],reporting:['REPORTING_EDGE'],
+ import:['Bulk Excel / CSV Import','Preview spreadsheet records; changes still require approval'],
+ reconciliation:['Data Reconciliation','Review imported PMS formation names, Section assignments and hierarchy gaps']};
+const actions={locations:['LOCATION_CREATE','LOCATION_RENAME','LOCATION_RETIRE','LOCATION_PARENT','LOCATION_PARENT_REASSIGN','LOCATION_PARENT_CLOSE','LOCATION_ALIAS'],
+ sections:['SECTION_DEFINE','SECTION_RENAME','SECTION_ALIAS','SECTION_RETIRE','SECTION_DEFINITION_RETIRE'],mappings:['SECTION_ATTACH','SECTION_MOVE'],reporting:['REPORTING_EDGE'],
  facilities:['BUILDING_CREATE','LOCATION_BUILDING','SECTION_BUILDING'],contacts:['CONTACT_ASSIGN'],
- personnel:['PERSONNEL_CREATE','POSTING_CREATE','LEAVE_REQUEST'],approval:[],import:['BATCH_REGISTER']};
+ personnel:['PERSONNEL_CREATE','POSTING_CREATE','LEAVE_REQUEST'],approval:[],import:['BATCH_REGISTER'],
+ reconciliation:['LOCATION_CREATE','LOCATION_RENAME','LOCATION_PARENT','LOCATION_PARENT_REASSIGN','LOCATION_RETIRE',
+ 'SECTION_DEFINE','SECTION_RENAME','SECTION_ATTACH','SECTION_MOVE','SECTION_DEFINITION_RETIRE','SECTION_RETIRE','LOCATION_ALIAS','SECTION_ALIAS']};
 const schema={
  LOCATION_CREATE:[['code','text'],['name','text'],['locationType','text','DIVISION'],['validFrom','date'],['validTo','date'],['visibility','select','STANDARD|RESTRICTED'],['selectable','checkbox']],
  SECTION_DEFINE:[['code','text'],['name','text'],['validFrom','date'],['validTo','date']],
  SECTION_ATTACH:[['locationId','uuid'],['sectionDefinitionId','uuid'],['validFrom','date'],['validTo','date'],['visibility','select','STANDARD|RESTRICTED'],['isDefault','checkbox']],
+ SECTION_MOVE:[['sectionId','uuid'],['targetLocationId','uuid'],['effectiveFrom','date']],
+ SECTION_DEFINITION_RETIRE:[['sectionDefinitionId','uuid'],['effectiveFrom','date']],
  LOCATION_RENAME:[['locationId','uuid'],['name','text'],['effectiveFrom','date']],
  LOCATION_RETIRE:[['locationId','uuid'],['effectiveFrom','date']],
  SECTION_RETIRE:[['sectionId','uuid'],['effectiveFrom','date']],
  SECTION_RENAME:[['sectionDefinitionId','uuid'],['name','text'],['effectiveFrom','date']],
  LOCATION_PARENT_CLOSE:[['relationshipId','uuid'],['effectiveFrom','date']],
  LOCATION_PARENT:[['childId','uuid'],['parentId','uuid'],['validFrom','date'],['validTo','date']],
+ LOCATION_PARENT_REASSIGN:[['childId','uuid'],['parentId','uuid'],['effectiveFrom','date']],
  LOCATION_ALIAS:[['locationId','uuid'],['alias','text']], SECTION_ALIAS:[['definitionId','uuid'],['alias','text']],
  REPORTING_EDGE:[['sourceId','uuid'],['authorityId','uuid'],['relationType','select','LOCAL|FUNCTIONAL|OPERATIONAL|ADMINISTRATIVE'],['scope','text'],['validFrom','date'],['validTo','date']],
  BUILDING_CREATE:[['code','text'],['name','text'],['address','text'],['parish','text'],['latitude','number'],['longitude','number'],['validFrom','date'],['validTo','date']],
@@ -97,7 +103,7 @@ function makeTable(items,pane=$('#results')){pane.replaceChildren();if(!items||!
  const columns=Object.keys(items[0]);for(const col of columns)tr.append(text('th',col));thead.append(tr);table.append(thead);
  let body=document.createElement('tbody');for(const item of items){let row=document.createElement('tr');for(const col of columns){let td=text('td',typeof item[col]==='object'?JSON.stringify(item[col]):item[col]);row.append(td)}body.append(row)}table.append(body);pane.append(table);}
 const lookupRoutes={locationId:'/api/v1/registry/locations',childId:'/api/v1/registry/locations',
- parentId:'/api/v1/registry/locations',sectionDefinitionId:'/api/v1/registry/section-definitions',
+ parentId:'/api/v1/registry/locations',targetLocationId:'/api/v1/registry/locations',sectionDefinitionId:'/api/v1/registry/section-definitions',
  definitionId:'/api/v1/registry/section-definitions',sourceId:'/api/v1/registry/org-nodes',
  authorityId:'/api/v1/registry/org-nodes',sectionId:'/api/v1/registry/org-nodes',
  buildingId:'/api/v1/facilities/buildings',locationBuildingId:'/api/v1/facilities/location-building-links'};
@@ -108,8 +114,8 @@ function addLookup(label,name){
  let clock;const load=async()=>{if(!token)return;try{
    let url=route+(route.includes('?')?'&':'?')+'search='+encodeURIComponent(search.value)+'&limit=200';
    if(name==='sectionId') {const selected=$('#f_locationId')?.value;
-     if(!selected){sel.replaceChildren(new Option('Select Location first',''));return}
-     url='/api/v1/registry/locations/'+selected+'/sections';}
+     url=selected?'/api/v1/registry/locations/'+selected+'/sections':
+       '/api/v1/registry/location-sections?limit=200';}
    let result=await api(url);const prev=sel.value;sel.replaceChildren(new Option('Select '+name,'',true,true));
    for(const x of result.items){const id=x.locationId||x.sectionId||x.sectionDefinitionId||x.orgNodeId||x.buildingId||x.locationBuildingId;
     const nameText=x.name||x.label||x.code||x.locationBuildingId;
@@ -125,7 +131,7 @@ function fieldForm(action){const container=$('#fields');container.replaceChildre
  else if(type==='json'){inp=document.createElement('textarea');inp.rows=5;inp.placeholder='[{"action":"LOCATION_CREATE","payload":{...}}]'}
  else if(type==='uuid'&&lookupRoutes[name]){inp=addLookup(label,name)}
  else{inp=document.createElement('input');inp.type=type==='uuid'?'text':type;inp.placeholder=type==='uuid'?'UUID':name;
-  if(type==='date'&&name==='validFrom')inp.value=new Date().toISOString().slice(0,10);
+  if(type==='date'&&(name==='validFrom'||name==='effectiveFrom'))inp.value=new Date().toISOString().slice(0,10);
   if(type==='checkbox')inp.checked=name==='isPrimary';if(type==='number')inp.step='any';}
  if(inp)inp.id='f_'+name;if(inp && !label.contains(inp))label.append(inp);grid.append(label)}container.append(grid);
  const locationField=container.querySelector('#f_locationId'),sectionField=container.querySelector('#f_sectionId');
