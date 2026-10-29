@@ -11,8 +11,11 @@ log(){ printf '[PMS diagnostic] %s\n' "$*"; }
 for bin in python3 docker ip;do command -v "$bin" >/dev/null || fail "Missing $bin";done
 HOST="$(sed -n 's/^PMS_SOURCE_HOST=//p' "$CFG/pms-source.env" | head -1)"
 [[ -n "$HOST" ]] || fail 'PMS_SOURCE_HOST not set'
-IP="$(printf '%s' "$HOST" | cut -d, -f1)"
-PORT="$(printf '%s' "$HOST" | awk -F, '{print NF>1?$NF:1433}')"
+# SQL Server host format is "IPv4" or "IPv4,port". Use Bash rather than
+# awk here: the previously used compact awk ternary was invalid on CentOS 9.
+IP="${HOST%%,*}"
+PORT=1433
+if [[ "$HOST" == *,* ]]; then PORT="${HOST##*,}"; fi
 [[ "$IP" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail 'Expected PMS SQL IPv4 address'
 [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || fail 'Invalid PMS SQL TCP port'
 log "Testing SQL endpoint $IP:$PORT (password never read)"
