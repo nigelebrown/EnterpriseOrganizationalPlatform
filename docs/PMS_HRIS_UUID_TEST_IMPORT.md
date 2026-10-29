@@ -5,6 +5,58 @@ development database with organizational structure from the existing PMS/HRIS
 SQL Server lookup tables and source-labelled address/phone candidates from
 the uploaded five-page JCF organizational directory PDF.
 
+## Reading across all HRIS mapping tables (29 October 2026)
+
+The newly uploaded **Personnel Formation Mapping(2).xlsx** identifies
+**seven organizational source lookup tables** and **eight many-to-many XAF
+relationship tables**. The previous import only read the seven lookup
+lists and intentionally created no parent hierarchy. It now has an
+additional **read-only relationship evidence** command:
+
+```bash
+cd /root/EnterpriseOrganizationalPlatform
+git pull --ff-only origin feat/initial-modular-platform
+bash scripts/run_pms_sync.sh relationships
+bash scripts/run_pms_sync.sh schema
+```
+
+The first command reads these eight link tables and their associated source
+record IDs, plus the available parent foreign-key columns, and reports
+agreement, disagreement, missing/inactive references and absent tables:
+
+| HRIS link table | Parent → child |
+|---|---|
+| `PortfoliosPortfolios_BranchesBranches` | Portfolio → Branch |
+| `PortfoliosPortfolios_AreasAreas` | Portfolio → Area |
+| `DivisionsDivisions_BranchesBranches` | Branch → Division |
+| `DivisionsDivisions_AreasAreas` | Area → Division |
+| `StationsStations_DivisionsDivisions` | Division → Station |
+| `SectionsSections_DivisionsDivisions` | Division → Section |
+| `UnitsUnits_SectionsSections` | Section → Unit |
+| `UnitsUnits_StationsStations` | Station → Unit |
+
+`Stations.Area` and `Units.Division` are also separately examined as
+parent-column evidence without a corresponding direct XAF link table.
+**None of these source relationships is installed into JCF-EMP
+automatically**; HRIS links may be stale or incorrect. This is reconciliation
+evidence, not an approved structure. The read-only scan never queries
+personnel/member records or changes the source or destination database.
+
+The workbook is a **historical source snapshot dated 21 October 2026**:
+6 Portfolios, 30 Branches, 6 Areas, 80 Divisions, 195 Stations, 295
+Sections and 226 Units (838 active lookup records). Against
+`HRIS_Duplicate`, the 29 October test extraction showed only **18 source
+records** (14 Locations and 4 Sections/Units). This discrepancy is far too
+large to assume the current test source contains a complete island-wide
+directory. The `schema` command compares `HRIS_Duplicate` against
+`HRIS_Copy` on the same host, provided the existing SQL account has access.
+
+The original workbook specifically states parent columns and link tables
+often disagree: of 295 active Sections, only 128 parent-field Division
+links agree with the link tables, and of 226 Units, only 27 Unit→Station
+parent-field links agree with the link tables. We therefore stage and review
+both representations; never select one as authoritative by default.
+
 ## UUID identity rule
 
 JCF-EMP always generates **new UUIDv4 primary keys** for every imported
