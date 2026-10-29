@@ -233,7 +233,7 @@ def create_app(database_url=None, *, engine=None):
             if len(possible)>1:issues.append('POTENTIAL_DUPLICATE_NAME')
             items.append({'entityType':'LOCATION','id':str(loc.id),'name':name,
                           'code':loc.code,'locationType':loc.location_type,
-                          'parentLocationId':str(parents[loc.id]) if loc.id in parents else None,
+                          'parentLocationId':str(parents[loc.id]) if loc.id in parents and parents[loc.id] in loc_by_id else None,
                           'potentialDuplicateIds':[str(i) for i in possible if i!=loc.id],
                           'issues':issues,'status':'IMPORTED_FOR_REVIEW'})
         for defin in defs:
