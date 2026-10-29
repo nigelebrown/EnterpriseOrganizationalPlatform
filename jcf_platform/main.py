@@ -46,6 +46,16 @@ bearer_scheme=HTTPBearer(auto_error=False,scheme_name='OIDC_Bearer')
 @lru_cache
 def jwk_client(url):return PyJWKClient(url,cache_jwk_set=True,lifespan=300)
 
+def _authorized_permissions(claims):
+    """The JWT signature, audience and issuer must be verified before calling this.
+    Delegated scopes and resource app-role grants have equal precise permission IDs.
+    """
+    delegated=claims.get('scope',claims.get('scp',[]))
+    if isinstance(delegated,str):delegated=delegated.split()
+    roles=claims.get('roles',[])
+    if isinstance(roles,str):roles=[roles]
+    return {value for value in list(delegated or [])+list(roles or []) if isinstance(value,str)}
+
 def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Security(bearer_scheme)):
     if credentials is None or credentials.scheme.lower()!='bearer':
         raise HTTPException(status_code=401,detail='Bearer access token required',headers={'WWW-Authenticate':'Bearer'})
@@ -62,9 +72,8 @@ def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Sec
                               issuer=settings['issuer'],options={'require':['exp','iss','aud','sub']},leeway=30)
     except Exception:
         raise HTTPException(status_code=401,detail='Invalid access token',headers={'WWW-Authenticate':'Bearer'})
-    claim_scope=claims.get('scope',claims.get('scp',[]))
-    if isinstance(claim_scope,str):claim_scope=claim_scope.split()
-    claims['_scopes']=set(claim_scope or [])
+    # Entra app-only tokens carry resource app roles, while user tokens use scp.
+    claims['_scopes']=_authorized_permissions(claims)
     return claims
 
 ACTION_DOMAIN = {
@@ -263,6 +272,22 @@ def create_app(database_url=None, *, engine=None):
                 'recordsWithIssues':sum(bool(x['issues']) for x in items)}
         return {'asOf':str(at),'source':'PMS_HRIS','totals':totals,'items':items,
                 'notice':'Test reference data for manual review, not approved master data'}
+
+    @app.get('/api/v1/registry/locations/{location_id}',tags=['Registry'])
+    def location_by_id(location_id:UUID,asOf:date|None=None,
+                       claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
+        """Resolve an official Location UUID for authorized downstream services.
+        Inactive, non-selectable and restricted entries remain unavailable.
+        """
+        at=asOf or date.today()
+        loc=s.get(db,m.Location,location_id)
+        if not (s.asof(loc,at) and loc.selectable and
+                (loc.visibility=='STANDARD' or 'registry.restricted.read' in claims['_scopes'])):
+            raise s.DomainError('NOT_FOUND','Location not available',404)
+        names=s.names_for(db,m.LocationName,'location_id',[loc.id],at)
+        if loc.id not in names:raise s.DomainError('NOT_FOUND','Location name not available',404)
+        return {'locationId':str(loc.id),'code':loc.code,'name':names[loc.id],
+                'type':loc.location_type,'asOf':str(at)}
 
     @app.get('/api/v1/registry/locations/{location_id}/sections',tags=['Registry'])
     def sections(location_id:UUID,asOf:date|None=None,search:str='',claims=Depends(permission('registry.read')),
@@ -506,6 +531,36 @@ def create_app(database_url=None, *, engine=None):
             if c and (c.visibility!='PERSONAL' or 'contacts.personal.read' in claims['_scopes']):
                 visible.append({'kind':c.kind,'value':c.value,'purpose':r.purpose,'telephoneSystem':c.telephone_system})
         return {'entityKind':kind,'entityId':str(entityId),'items':visible}
+    @app.get('/api/v1/hr/personnel/by-computer-number/{computer_number}/posting/current',tags=['HR'])
+    def current_posting_by_computer_number(computer_number:str,asOf:date|None=None,
+                                          claims=Depends(permission('hr.postings.read')),
+                                          db:Session=Depends(db_session)):
+        """Authoritative *applied* primary posting for a trusted server-side consumer.
+
+        No cross-system Location UUID is invented and no pending governance change
+        is represented as official. A missing/ambiguous current posting fails closed
+        in consumers such as JcfAdReset HRIS approval.
+        """
+        number=computer_number.strip()
+        if not number or len(number)>45 or not all(c.isalnum() or c in '-_' for c in number):
+            raise s.DomainError('INVALID_COMPUTER_NUMBER','Invalid Computer Number',400)
+        person=db.scalar(select(m.Personnel).where(m.Personnel.computer_number==number))
+        if person is None:raise s.DomainError('PERSONNEL_NOT_FOUND','Personnel record not found',404)
+        at=asOf or date.today()
+        active=[p for p in db.scalars(select(m.Posting).where(
+            m.Posting.personnel_id==person.id,m.Posting.is_primary==True)).all() if s.asof(p,at)]
+        if len(active)>1:
+            raise s.DomainError('AMBIGUOUS_PRIMARY_POSTING','Multiple primary postings overlap',409)
+        current=active[0] if active else None
+        if current is not None:
+            s.validate_pair(db,current.location_id,current.section_id,at,allow_restricted=True)
+        return {'computerNumber':number,'personnelId':str(person.id),'asOf':str(at),
+                'posting':None if current is None else {
+                    'postingId':str(current.id),'locationId':str(current.location_id),
+                    'sectionId':str(current.section_id),'isPrimary':True,
+                    'validFrom':str(current.valid_from),
+                    'validTo':str(current.valid_to) if current.valid_to else None}}
+
     @app.get('/api/v1/hr/personnel/{person_id}/postings',tags=['HR'])
     def postings(person_id:UUID,claims=Depends(permission('hr.postings.read')),db:Session=Depends(db_session)):
         s.get(db,m.Personnel,person_id)
