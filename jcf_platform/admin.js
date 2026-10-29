@@ -347,8 +347,16 @@ function locationView(pane,d){
      return li;
     }
     for(const root of roots.filter(visibleBranch)){const item=branch(root,0);if(item)rootList.append(item)}
-    // Visible orphan/cycle data must never disappear from the directory.
-    for(const node of candidates)if(!rendered.has(node.locationId)){
+    // Ensure collapsed descendants are not accidentally rendered as roots.
+    // Only genuinely disconnected/cyclic records are given a fallback root.
+    const reachable=new Set();
+    function markReachable(node){
+      if(reachable.has(node.locationId))return;
+      reachable.add(node.locationId);
+      (children.get(node.locationId)||[]).forEach(markReachable);
+    }
+    roots.forEach(markReachable);
+    for(const node of candidates)if(!reachable.has(node.locationId)&&!rendered.has(node.locationId)){
       const item=branch(node,0);if(item)rootList.append(item);
     }
     list.append(rootList);
