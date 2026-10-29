@@ -167,6 +167,40 @@ def _change(db, action, p):
                                   valid_from=start,valid_to=end,is_default=bool(p.get('isDefault',False)),
                                   visibility=p.get('visibility','STANDARD')))
         return n.id
+    if a=='SECTION_MOVE':
+        """Move an assigned Section/Unit to another Location, retaining its old UUID/history."""
+        old=get(db,m.LocationSection,p['sectionId']);at=day(p['effectiveFrom'])
+        require(at>old.valid_from and (old.valid_to is None or at<old.valid_to),
+                'INVALID_DATE','Section move must occur within its active assignment period')
+        require(old.location_id != identifier(p['targetLocationId']),
+                'SAME_LOCATION','Choose a different target Location')
+        existing_posts=db.scalars(select(m.Posting).where(m.Posting.section_id==old.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in existing_posts),
+                'ACTIVE_POSTINGS','Transfer associated personnel postings first',409)
+        existing_building=db.scalars(select(m.SectionBuilding).where(m.SectionBuilding.section_id==old.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in existing_building),
+                'ACTIVE_OCCUPANCY','Close Section building assignments before moving',409)
+        old.valid_to=at
+        return _change(db,'SECTION_ATTACH',{
+            'locationId':p['targetLocationId'],
+            'sectionDefinitionId':str(old.definition_id),
+            'validFrom':str(at),'isDefault':old.is_default,
+            'visibility':old.visibility})
+    if a=='SECTION_DEFINITION_RETIRE':
+        """Retire an unused duplicate Section definition; preserve all historical IDs."""
+        definition=get(db,m.SectionDefinition,p['sectionDefinitionId'])
+        at=day(p['effectiveFrom'])
+        require(at>definition.valid_from and (definition.valid_to is None or at<definition.valid_to),
+                'INVALID_DATE','Retirement must be within the current definition period')
+        mappings=db.scalars(select(m.LocationSection).where(
+            m.LocationSection.definition_id==definition.id)).all()
+        require(not any(x.valid_to is None or x.valid_to>at for x in mappings),
+                'ACTIVE_SECTIONS','Close or move all active Section instances before retiring a duplicate',409)
+        definition.valid_to=at
+        names=db.scalars(select(m.SectionName).where(m.SectionName.definition_id==definition.id)).all()
+        for name in names:
+            if asof(name,at): name.valid_to=at
+        return definition.id
     if a=='LOCATION_RENAME':
         l=get(db,m.Location,p['locationId']); at=day(p['effectiveFrom'])
         require(asof(l,at),'INVALID_DATE','Location not effective on rename date')
@@ -226,6 +260,22 @@ def _change(db, action, p):
                 'INVALID_DATE','Closing date must follow start and precede current end')
         edge.valid_to=at
         return edge.id
+    if a=='LOCATION_PARENT_REASSIGN':
+        """Close the current effective parent and assign a new parent atomically."""
+        child=get(db,m.Location,p['childId']);at=day(p['effectiveFrom'])
+        previous=db.scalars(select(m.LocationParent).where(
+            m.LocationParent.child_id==child.id)).all()
+        active=[x for x in previous if asof(x,at)]
+        require(len(active)<=1,'MULTIPLE_PRIMARY_PARENTS','Existing hierarchy needs review',409)
+        if active:
+            edge=active[0]
+            require(at>edge.valid_from,'INVALID_DATE',
+                    'Effective date must be later than existing parent start')
+            require(edge.parent_id!=identifier(p['parentId']),
+                    'SAME_PARENT','Select a different parent')
+            edge.valid_to=at
+        return _change(db,'LOCATION_PARENT',{'childId':str(child.id),
+                                              'parentId':p['parentId'],'validFrom':str(at)})
     if a=='LOCATION_PARENT':
         start,end=_range(p)
         child=get(db,m.Location,p['childId']);parent=get(db,m.Location,p['parentId'])
