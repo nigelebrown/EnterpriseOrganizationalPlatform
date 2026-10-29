@@ -69,8 +69,8 @@ def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Sec
 
 ACTION_DOMAIN = {
   'LOCATION_CREATE':'registry','SECTION_DEFINE':'registry','SECTION_ATTACH':'registry',
-  'LOCATION_RENAME':'registry','LOCATION_PARENT':'registry','LOCATION_ALIAS':'registry',
-  'LOCATION_RETIRE':'registry','SECTION_RETIRE':'registry','SECTION_RENAME':'registry',
+  'LOCATION_RENAME':'registry','LOCATION_PARENT':'registry','LOCATION_PARENT_REASSIGN':'registry','LOCATION_ALIAS':'registry',
+  'LOCATION_RETIRE':'registry','SECTION_RETIRE':'registry','SECTION_MOVE':'registry','SECTION_DEFINITION_RETIRE':'registry','SECTION_RENAME':'registry',
   'LOCATION_PARENT_CLOSE':'registry',
   'SECTION_ALIAS':'registry','BATCH_REGISTER':'registry',
   'REPORTING_EDGE':'reporting',
@@ -190,6 +190,67 @@ def create_app(database_url=None, *, engine=None):
                for loc in visible if loc.id in names]
         return {'asOf':str(at),'items':items[cursor:cursor+limit],
                 'nextCursor':str(cursor+limit) if len(items)>cursor+limit else None}
+
+    @app.get('/api/v1/registry/reconciliation',tags=['Registry'])
+    def reconciliation(asOf:date|None=None,
+                       claims=Depends(permission('registry.read')),
+                       db:Session=Depends(db_session)):
+        """Imported PMS test records with review flags; never alter or publish them."""
+        at=asOf or date.today()
+        restricted='registry.restricted.read' in claims['_scopes']
+        locs=[l for l in db.scalars(select(m.Location)).all() if s.asof(l,at)
+              and (restricted or l.visibility=='STANDARD')]
+        defs=[x for x in db.scalars(select(m.SectionDefinition)).all() if s.asof(x,at)]
+        loc_by_id={x.id:x for x in locs}
+        def_by_id={x.id:x for x in defs}
+        loc_names=s.names_for(db,m.LocationName,'location_id',list(loc_by_id),at)
+        def_names=s.names_for(db,m.SectionName,'definition_id',list(def_by_id),at)
+        parents={x.child_id:x.parent_id for x in db.scalars(select(m.LocationParent)).all()
+                 if s.asof(x,at)}
+        mappings=[x for x in db.scalars(select(m.LocationSection)).all() if s.asof(x,at)
+                  and x.location_id in loc_by_id
+                  and (restricted or x.visibility=='STANDARD')]
+        sections_attached={x.definition_id for x in mappings}
+        imported=db.scalars(select(m.ExternalID).where(m.ExternalID.source=='PMS_HRIS')).all()
+        # Reconciliation must not expose restricted formation names or IDs.
+        source_locs={x.canonical_id for x in imported if x.entity_type in
+                     ('Portfolios','Areas','Branches','Divisions','Stations')}
+        source_defs={x.canonical_id for x in imported if x.entity_type in ('Sections','Units')}
+        all_names={}
+        for loc in locs:
+            name=loc_names.get(loc.id)
+            if name:
+                key=(loc.location_type,' '.join(name.casefold().split()))
+                all_names.setdefault(key,[]).append(loc.id)
+        items=[]
+        for loc in locs:
+            if loc.id not in source_locs or loc.id not in loc_names:continue
+            name=loc_names[loc.id]
+            possible=all_names.get((loc.location_type,' '.join(name.casefold().split())),[])
+            issues=[]
+            if loc.location_type not in ('PORTFOLIO','HQ') and loc.id not in parents:
+                issues.append('PARENT_NOT_ASSIGNED')
+            if len(possible)>1:issues.append('POTENTIAL_DUPLICATE_NAME')
+            items.append({'entityType':'LOCATION','id':str(loc.id),'name':name,
+                          'code':loc.code,'locationType':loc.location_type,
+                          'parentLocationId':str(parents[loc.id]) if loc.id in parents else None,
+                          'potentialDuplicateIds':[str(i) for i in possible if i!=loc.id],
+                          'issues':issues,'status':'IMPORTED_FOR_REVIEW'})
+        for defin in defs:
+            if defin.id not in source_defs or defin.id not in def_names:continue
+            name=def_names[defin.id]
+            issues=[]
+            if defin.id not in sections_attached:issues.append('NO_LOCATION_ASSIGNMENT')
+            items.append({'entityType':'SECTION_UNIT','id':str(defin.id),'name':name,
+                          'code':defin.code,'locationType':None,'parentLocationId':None,
+                          'potentialDuplicateIds':[],'issues':issues,
+                          'status':'IMPORTED_FOR_REVIEW'})
+        items.sort(key=lambda row:(row['entityType'],row['name'].casefold(),row['id']))
+        totals={'importedLocations':sum(x['entityType']=='LOCATION' for x in items),
+                'importedSections':sum(x['entityType']=='SECTION_UNIT' for x in items),
+                'recordsWithIssues':sum(bool(x['issues']) for x in items)}
+        return {'asOf':str(at),'source':'PMS_HRIS','totals':totals,'items':items,
+                'notice':'Test reference data for manual review, not approved master data'}
 
     @app.get('/api/v1/registry/locations/{location_id}/sections',tags=['Registry'])
     def sections(location_id:UUID,asOf:date|None=None,search:str='',claims=Depends(permission('registry.read')),
