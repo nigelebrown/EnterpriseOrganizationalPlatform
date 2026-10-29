@@ -252,6 +252,22 @@ def create_app(database_url=None, *, engine=None):
         return {'asOf':str(at),'source':'PMS_HRIS','totals':totals,'items':items,
                 'notice':'Test reference data for manual review, not approved master data'}
 
+    @app.get('/api/v1/registry/locations/{location_id}',tags=['Registry'])
+    def location_by_id(location_id:UUID,asOf:date|None=None,
+                       claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
+        """Resolve an official Location UUID for authorized downstream services.
+        Inactive, non-selectable and restricted entries remain unavailable.
+        """
+        at=asOf or date.today()
+        loc=s.get(db,m.Location,location_id)
+        if not (s.asof(loc,at) and loc.selectable and
+                (loc.visibility=='STANDARD' or 'registry.restricted.read' in claims['_scopes'])):
+            raise s.DomainError('NOT_FOUND','Location not available',404)
+        names=s.names_for(db,m.LocationName,'location_id',[loc.id],at)
+        if loc.id not in names:raise s.DomainError('NOT_FOUND','Location name not available',404)
+        return {'locationId':str(loc.id),'code':loc.code,'name':names[loc.id],
+                'type':loc.location_type,'asOf':str(at)}
+
     @app.get('/api/v1/registry/locations/{location_id}/sections',tags=['Registry'])
     def sections(location_id:UUID,asOf:date|None=None,search:str='',claims=Depends(permission('registry.read')),
                  db:Session=Depends(db_session)):
