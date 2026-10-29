@@ -38,6 +38,8 @@ def test_imported_reference_records_are_reviewable_and_correctable(client,app,se
     assert {"PARENT_NOT_ASSIGNED","POTENTIAL_DUPLICATE_NAME"} <= set(next(
         x for x in rows if x["id"]==a)["issues"])
     assert "NO_LOCATION_ASSIGNMENT" in next(x for x in rows if x["id"]==section)["issues"]
+    assert "POTENTIAL_DUPLICATE_NAME" in next(x for x in rows if x["id"]==section)["issues"]
+    assert next(x for x in rows if x["id"]==section)["potentialDuplicateIds"]==[unused]
     getid(service_client("LOCATION_RENAME",{"locationId":a,"name":"Division Correct",
                                             "effectiveFrom":"2026-07-01"}))
     getid(service_client("LOCATION_PARENT",{"childId":a,"parentId":hq,
