@@ -227,6 +227,18 @@ def external_id(db,kind,oid,canonical):
     db.commit()
 
 
+def external_id_pdf(db,source,kind,source_id,canonical):
+    row=db.scalar(select(m.ExternalID).where(m.ExternalID.source==source,
+                  m.ExternalID.entity_type==kind,m.ExternalID.source_id==source_id))
+    if row:
+        if row.canonical_id!=canonical:
+            raise RuntimeError(f"PDF source crosswalk changed: {source_id}")
+        return
+    db.add(m.ExternalID(source=source,entity_type=kind,source_id=source_id,
+                        canonical_id=canonical))
+    db.commit()
+
+
 def apply(db,locs,sections,issues):
     counters=Counter()
     identifiers={}
@@ -301,6 +313,8 @@ def main():
     p=argparse.ArgumentParser(description="PMS/HRIS reference-table sync to TEST registry (never personnel)")
     p.add_argument("action",choices=["inspect","preview","apply","verify"])
     p.add_argument("--confirm-test-import",action="store_true")
+    p.add_argument("--include-pdf",action="store_true",
+                   help="Include source-labelled scanned directory address/phone candidates in TEST only")
     args=p.parse_args()
     check_target()
     destination=config.make_engine()
@@ -328,6 +342,11 @@ def main():
                                                for s in sections if s["targetLocationCode"]}),
                 "unresolvedCount":len(issues)+len(warnings),
                 "unresolvedSample":(warnings+issues)[:30]}
+        if args.include_pdf:
+            from scripts import pms_pdf_directory
+            matches,unmatched=pms_pdf_directory.match_candidates(locations)
+            report["pdfDirectory"]={"matched":len(matches),"unmatched":unmatched,
+                                    "sourceStatus":"SCANNED_UNVERIFIED_TEST_ONLY"}
         if args.action in ("inspect","preview"):
             print(json.dumps(report,indent=2))
             print("READ ONLY: No PMS or JCF-EMP rows changed.")
@@ -336,7 +355,11 @@ def main():
             raise RuntimeError("Run preview first, then apply --confirm-test-import (TEST database only)")
         with Session(destination) as db:
             applied=apply(db,locations,sections,issues)
+            pdf_report=None
+            if args.include_pdf:
+                pdf_report=pms_pdf_directory.attach_pdf_candidates(db,locations)
             print(json.dumps({"planned":report,"applied":applied,
+                              "scannedPdfImport":pdf_report,
                               "verified":verify(db)},indent=2))
         print("PMS/HRIS source was never modified. JCF-EMP test import used distinct synthetic workflow identities.")
     finally: destination.dispose()
