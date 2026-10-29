@@ -135,7 +135,7 @@ function setupForm(){let sel=$('#action');sel.replaceChildren();for(const action
 
 /* Directory views are READ-ONLY; preview is synthetic in-browser data, NEVER database data. */
 let previewMode=false, directoryCache=null, viewGeneration=0;
-function cleanLabel(value){return String(value??'').replace(/\[TEST\]\s*/g,'')}
+function cleanLabel(value){return String(value??'').replace(/\[TEST\]\s*/g,'').replace(/\bDEMO-/g,'')}
 function ui(tag,className,label){
  const el=document.createElement(tag);
  if(className)el.className=className;
@@ -436,7 +436,12 @@ function locationView(pane,d){
   else empty(detail,'No Section/Unit is assigned to this Location.');
   const buildings=d.occupancies.filter(o=>o.locationId===loc.locationId);
   sectionTitle(detail,'Buildings',buildings.length+' active occupancies');
-  dataTable(detail,[['Building',x=>x.buildingName],['Occupancy',x=>x.occupancyType]],buildings);
+  dataTable(detail,[['Building',x=>x.buildingName],['Address',x=>addressFor(x)],
+   ['Occupancy',x=>x.occupancyType]],buildings);
+  sectionTitle(detail,'Contact Information','Official organizational and shared building contact records');
+  const contacts=locationContacts(d,loc);
+  dataTable(detail,[['Type',x=>x.kind],['Contact',x=>x.value],
+   ['Applies to',x=>x.entityKind.replace('_',' ')],['Purpose',x=>x.purpose]],contacts);
   sectionTitle(detail,'Reporting Authorities','Local, functional and operational links');
   dataTable(detail,[['Reports to',x=>x.authorityName],['Type',x=>pill(x.type)]],
    d.reporting.filter(x=>x.sourceOrgNodeId===loc.locationId));
@@ -485,7 +490,10 @@ function buildingView(pane,d){
    const card=ui('article','building-card');
    card.append(ui('span','eyebrow',b.code),ui('h2','',b.name));
    const occ=d.occupancies.filter(o=>o.buildingId===b.buildingId);
-   card.append(ui('p','',occ[0]?[occ[0].address,occ[0].parish].filter(Boolean).join(', '):'No active Location occupancy'));
+   card.append(ui('p','',occ[0]?addressFor(occ[0]):'Address not recorded'));
+   const buildingContacts=contactsFor(d,'BUILDING',b.buildingId);
+   if(buildingContacts.length)card.append(ui('p','building-contacts',buildingContacts.map(x=>x.kind+': '+x.value).join(' · ')));
+   else card.append(ui('p','contact-empty','Building contact information not recorded'));
    const group=ui('div','occupancy-list');
    if(occ.length)for(const o of occ){
     const line=ui('div','occupancy-row');
@@ -493,7 +501,10 @@ function buildingView(pane,d){
     group.append(line);
    }
    else empty(group,'No assigned Location');
-   card.append(group);list.append(card);
+   card.append(group);
+   const locContactCount=occ.reduce((n,o)=>n+contactsFor(d,'LOCATION',o.locationId).length,0);
+   if(locContactCount)card.append(ui('p','building-contacts',locContactCount+' Location contact record(s) available in Contact Directory'));
+   list.append(card);
   });
  }draw();
 }
@@ -508,6 +519,30 @@ function reportingView(pane,d){
    ['Relationship',x=>pill(x.type)],['Scope',x=>x.scope||'—']],
   d.reporting.filter(x=>(!type||x.type===type)&&
    (x.sourceName+' '+x.authorityName).toLowerCase().includes(q)));
+ }draw();
+}
+
+function contactsView(pane,d){
+ sectionTitle(pane,'Contact Directory','Telephone numbers, extensions and email addresses are linked to the Location, Section/Unit or Building that owns them.');
+ const entries=(d.contacts||[]).map(c=>{
+  let owner='Unknown';
+  if(c.entityKind==='LOCATION')owner=d.locations.find(l=>l.locationId===c.entityId)?.name||'Location';
+  else if(c.entityKind==='LOCATION_SECTION'){
+   const item=d.mappings.find(m=>m.sectionId===c.entityId);
+   owner=item?item.name+' · '+item.locationName:'Section / Unit';
+  }else if(c.entityKind==='BUILDING')owner=d.buildings.find(b=>b.buildingId===c.entityId)?.name||'Building';
+  return {...c,owner};
+ });
+ metrics(pane,[['Contact Records',entries.length,'Visible authorized contact assignments'],
+  ['Locations with Contacts',new Set(entries.filter(x=>x.entityKind==='LOCATION').map(x=>x.entityId)).size],
+  ['Buildings with Contacts',new Set(entries.filter(x=>x.entityKind==='BUILDING').map(x=>x.entityId)).size]]);
+ let q='';
+ searchField(pane,'Search name, telephone, extension or email',value=>{q=value.trim().toLowerCase();draw()});
+ const list=ui('div','');pane.append(list);
+ function draw(){
+  list.replaceChildren();dataTable(list,[['Owner',x=>x.owner],['Entity',x=>x.entityKind.replace('_',' ')],
+   ['Type',x=>x.kind],['Contact',x=>x.value],['Purpose',x=>x.purpose]],entries.filter(x=>
+   (x.owner+' '+x.value+' '+x.kind+' '+x.entityKind).toLowerCase().includes(q)));
  }draw();
 }
 async function readDirectory(){
@@ -559,7 +594,7 @@ async function loadView(){
     alertMsg(data.operations.length+' valid operations and '+data.errors.length+' errors. Review before submitting for approval.');
    }));return;
   }
-  if(current==='contacts'||current==='personnel'){
+  if(current==='personnel'){
    pane.replaceChildren();
    empty(pane,'A searchable cross-entity listing is not yet available for this module. Its existing authorized entity-level APIs and change workflow remain in place.');
    return;
@@ -573,7 +608,7 @@ async function loadView(){
    pane.append(warning);
   }
   const tabs={overview:overviewView,locations:locationView,sections:sectionsView,
-   mappings:mappingsView,facilities:buildingView,reporting:reportingView};
+   mappings:mappingsView,facilities:buildingView,reporting:reportingView,contacts:contactsView};
   tabs[current](pane,d);
  }catch(e){
   if(generation!==viewGeneration)return;
