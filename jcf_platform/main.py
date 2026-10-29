@@ -21,7 +21,11 @@ from sqlalchemy import select, text, and_, or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from openpyxl import load_workbook
-from . import config, models as m, service as s
+from . import config, models as m, service as s, local_auth
+
+class LocalTestLogin(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=256)
 
 class SubmitChange(BaseModel):
     action: str = Field(min_length=3, max_length=60)
@@ -48,9 +52,14 @@ def _principal(request:Request,credentials:HTTPAuthorizationCredentials|None=Sec
     raw=credentials.credentials
     settings=request.app.state.settings
     try:
-        signing_key=jwk_client(settings['jwks']).get_signing_key_from_jwt(raw).key
-        claims=jwt.decode(raw,signing_key,algorithms=['RS256','ES256'],audience=settings['audience'],
-                          issuer=settings['issuer'],options={'require':['exp','iss','aud','sub']},leeway=30)
+        algorithm=jwt.get_unverified_header(raw).get('alg')
+        if algorithm=='HS256':
+            # Separate development-only token trust, impossible in production.
+            claims=local_auth.decode_test_token(raw,settings)
+        else:
+            signing_key=jwk_client(settings['jwks']).get_signing_key_from_jwt(raw).key
+            claims=jwt.decode(raw,signing_key,algorithms=['RS256','ES256'],audience=settings['audience'],
+                              issuer=settings['issuer'],options={'require':['exp','iss','aud','sub']},leeway=30)
     except Exception:
         raise HTTPException(status_code=401,detail='Invalid access token',headers={'WWW-Authenticate':'Bearer'})
     claim_scope=claims.get('scope',claims.get('scp',[]))
@@ -96,6 +105,7 @@ def create_app(database_url=None, *, engine=None):
     # Config must fail closed on production startup. Test mode explicitly opt-in via APP_ENV=test.
     cfg=config.settings() if database_url is None else {
         'env':'test','database_url':database_url,'issuer':'','audience':'','jwks':'','cors':[], 'require_https':False}
+    local_auth.validate_configuration(cfg)
     eng=engine or config.make_engine(cfg['database_url'])
     @asynccontextmanager
     async def lifespan(app):
@@ -474,7 +484,15 @@ def create_app(database_url=None, *, engine=None):
     def oidc_config():
         return {'clientId':os.getenv('ADMIN_OIDC_CLIENT_ID',''),'authorizationEndpoint':os.getenv('ADMIN_OIDC_AUTHORIZATION_ENDPOINT',''),
                 'tokenEndpoint':os.getenv('ADMIN_OIDC_TOKEN_ENDPOINT',''),'scope':os.getenv('ADMIN_OIDC_SCOPE','openid profile registry.read registry.write registry.approve registry.apply'),
-                'redirectUri':os.getenv('ADMIN_REDIRECT_URI','')}
+                'redirectUri':os.getenv('ADMIN_REDIRECT_URI',''),
+                'localTestEnabled':local_auth.test_configured(cfg)}
+
+    @app.post('/api/v1/admin/local-test-login',include_in_schema=False)
+    def local_test_login(body:LocalTestLogin,request:Request):
+        # Test identity is explicitly configured on the isolated Express environment.
+        # Never return a usable token from production, external SQL, or an AG.
+        return local_auth.login(body.username,body.password,cfg,
+                                request.client.host if request.client else 'unknown')
     @app.get('/assets/admin.js',include_in_schema=False)
     def admin_js(): return FileResponse(Path(__file__).parent/'admin.js',media_type='application/javascript')
     @app.get('/assets/admin.css',include_in_schema=False)
