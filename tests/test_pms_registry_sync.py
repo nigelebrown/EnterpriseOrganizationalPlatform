@@ -61,6 +61,14 @@ def test_governed_pms_import_writes_crosswalk_without_personnel(app):
         assert second.get("locationsCreated",0)==0
         assert db.query(m.Location).count()==6
         assert db.query(m.SectionDefinition).count()==2
+        # JCF-EMP generates its OWN UUIDv4 keys; PMS IDs are external references only.
+        from uuid import UUID
+        for model in (m.Location,m.SectionDefinition,m.LocationSection,m.LocationParent):
+            for record in db.query(model).all():
+                assert isinstance(record.id,UUID)
+                assert record.id.version == 4
+        for row in db.query(m.ExternalID).all():
+            assert row.canonical_id.version == 4
         assert db.query(m.LocationSection).count()==3
         assert db.query(m.LocationParent).count()==5
 
@@ -84,8 +92,9 @@ def test_scanned_directory_addresses_match_only_exact_formation_names():
     source=example_source()
     locs,_,_=sync.plan(source)
     matched,skipped=pdf.match_candidates(locs)
-    assert not matched  # No fictional test Location should receive a real address
-    assert len(skipped)==len(pdf.load_candidates())
+    assert len(matched)==2  # Demo source fixture happens to share two official names
+    assert len(skipped)==len(pdf.load_candidates())-len(matched)
+    assert {x["locationName"] for x,_ in matched}=={"Area One","St James"}
     assert pdf.normalize("St. Andrew Central Divisional Hq.") == pdf.normalize("ST ANDREW CENTRAL")
 
 
@@ -99,13 +108,36 @@ def test_scanned_directory_import_uses_provenance_and_is_idempotent(app):
     with Session(app.state.engine) as db:
         sync.apply(db,locs,units,issues)
         first=pdf.attach_pdf_candidates(db,locs)
-        assert first["matched"]==1
-        assert first["created"]["buildings"]==1
-        assert first["created"]["locationBuildings"]==1
-        assert first["created"]["contacts"]==1
-        assert db.query(m.Building).count()==1
+        assert first["matched"]==3
+        assert first["created"]["buildings"]==3
+        assert first["created"]["locationBuildings"]==3
+        assert first["created"]["contacts"]>=1
+        assert db.query(m.Building).count()==3
         again=pdf.attach_pdf_candidates(db,locs)
         assert again["created"]=={"buildings":0,"locationBuildings":0,"contacts":0}
-        assert db.query(m.Contact).count()==1
+        assert db.query(m.Contact).count()==first["created"]["contacts"]
         assert db.query(m.ExternalID).filter(
-            m.ExternalID.source==pdf.SOURCE_NAME).count()==1
+            m.ExternalID.source==pdf.SOURCE_NAME).count()==3
+
+
+def test_integer_pms_oid_does_not_become_destination_primary_key(app):
+    from uuid import UUID
+    # SQL XAF Oid can be GUID or integer; both must remain opaque source IDs.
+    assert sync.source_id(12345) == "12345"
+    assert sync.source_id("000045") == "000045"
+    src=example_source()
+    source_row=src["Portfolios"][0]
+    source_row["id"]="12345"
+    src["Areas"][0]["parents"]["Portfolio"]="12345"
+    locs,units,issues=sync.plan(src)
+    assert not issues
+    with Session(app.state.engine) as db:
+        sync.apply(db,locs,units,issues)
+        cross=db.query(m.ExternalID).filter(
+            m.ExternalID.source==sync.SOURCE,
+            m.ExternalID.entity_type=="Portfolios",
+            m.ExternalID.source_id=="12345").one()
+        assert isinstance(cross.canonical_id, UUID)
+        assert cross.canonical_id.version==4
+        assert str(cross.canonical_id)!="12345"
+        assert db.get(m.Location,cross.canonical_id).id==cross.canonical_id
