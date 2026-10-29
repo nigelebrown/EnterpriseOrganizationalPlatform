@@ -596,6 +596,8 @@ def create_app(database_url=None, *, engine=None):
         # Never return a usable token from production, external SQL, or an AG.
         return local_auth.login(body.username,body.password,cfg,
                                 request.client.host if request.client else 'unknown')
+    @app.get('/assets/reconciliation.js',include_in_schema=False)
+    def reconciliation_js(): return FileResponse(Path(__file__).parent/'reconciliation.js',media_type='application/javascript')
     @app.get('/assets/admin.js',include_in_schema=False)
     def admin_js(): return FileResponse(Path(__file__).parent/'admin.js',media_type='application/javascript')
     @app.get('/assets/admin.css',include_in_schema=False)
