@@ -31,4 +31,4 @@ build-backend = "setuptools.build_meta"
 include = ["jcf_platform*"]
 
 [tool.setuptools.package-data]
-jcf_platform = ["admin.html", "admin.js", "admin.css"]
+jcf_platform = ["admin.html", "admin.js", "admin.css", "reconciliation.js"]
