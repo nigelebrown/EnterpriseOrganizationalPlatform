@@ -34,8 +34,18 @@ LOCATIONS = [
     ("EXT", "External Attachment (illustrative)", "EXTERNAL_ATTACHMENT", None),
 ]
 SECTIONS = [
-    ("CIB", "CIB"), ("DIU", "DIU"), ("ADMIN", "Administrative Office"),
-    ("ICT", "ICT Support"), ("OPS", "Operations"),
+    # CIB and DIU were already present. Preserve their existing definition IDs
+    # and location mappings; never recreate or rename the existing records.
+    ("CIB", "CIB"),
+    ("DIU", "DIU"),
+    ("PIU", "PIU"),
+    ("GENOFF", "General Office"),
+    ("ARMOURY", "Armoury"),
+    ("OPSOFF", "Operations Office"),
+    # Existing illustrative sections remain available for legacy demo postings.
+    ("ADMIN", "Administrative Office"),
+    ("ICT", "ICT Support"),
+    ("OPS", "Operations"),
 ]
 ATTACHMENTS = [
     ("HQ", "ADMIN"), ("SO", "OPS"), ("A1", "OPS"), ("A2", "OPS"),
@@ -241,8 +251,8 @@ def verify_fixture(db: Session):
         assert pid is not None
         assert db.scalar(select(m.Posting.id).where(
             m.Posting.personnel_id == pid)) is not None
-    print("TEST fixture verified: 12 locations, 5 definitions, "
-          "16 mappings, 10 reporting edges, 3 fake members")
+    print(f"TEST fixture verified: {len(LOCATIONS)} locations, {len(SECTIONS)} definitions, "
+          f"{len(ATTACHMENTS)} mappings, 10 reporting edges, 3 fake members")
 
 
 def validate_test_target():
