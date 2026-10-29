@@ -25,26 +25,25 @@ def example_source():
             "Stations":[st],"Sections":[s,duplicate],"Units":[u]}
 
 
-def test_pms_plan_real_table_hierarchy():
+def test_pms_plan_does_not_copy_incorrect_hris_hierarchy_or_merge_names():
     source=example_source()
     locs,units,issues=sync.plan(source)
-    assert issues == []
     assert len(locs)==6 and len(units)==3
-    by_name={x["name"]:x for x in locs}
-    assert by_name["St. James"]["parent"]==["Areas",source["Areas"][0]["id"]]
-    assert by_name["Montego Bay"]["parent"]==["Divisions",source["Divisions"][0]["id"]]
-    assert by_name["Organized Crime"]["parent"]==["Branches",source["Branches"][0]["id"]]
-    assert len({x["definitionCode"] for x in units}) == 2  # reused CIB name
-    assert next(x for x in units if x["name"]=="PIU")["targetLocationCode"] == by_name["Montego Bay"]["targetCode"]
+    assert all(x["parent"] is None for x in locs)
+    assert all(x["targetLocationCode"] is None for x in units)
+    assert len({x["definitionCode"] for x in units})==3
+    assert any("POTENTIAL_DUPLICATE_NAME" in issue for issue in issues)
+    assert any("SOURCE_HIERARCHY_UNTRUSTED" in issue for issue in issues)
 
 
-def test_parent_conflict_is_flagged_not_guessed():
+def test_conflicting_legacy_parents_are_ignored_not_inherited():
     source=example_source()
     div=source["Divisions"][0]
     div["parents"]["Branch"]=source["Branches"][0]["id"]
-    locs,_,issues=sync.plan(source)
-    assert any("AMBIGUOUS_PARENT" in x for x in issues)
-    assert next(x for x in locs if x["id"]==div["id"])["parent"] is None
+    locs,sections,issues=sync.plan(source)
+    assert all(x["parent"] is None for x in locs)
+    assert all(x["targetLocationCode"] is None for x in sections)
+    assert any("SOURCE_HIERARCHY_UNTRUSTED" in issue for issue in issues)
 
 
 def test_governed_pms_import_writes_crosswalk_without_personnel(app):
@@ -53,14 +52,14 @@ def test_governed_pms_import_writes_crosswalk_without_personnel(app):
     with Session(app.state.engine) as db:
         first=sync.apply(db,locs,units,issues)
         assert first["locationsCreated"]==6
-        assert first["sectionsAssigned"]==3
+        assert first.get("sectionsAssigned",0)==0
         assert db.query(m.Personnel).count()==0
         assert db.query(m.Posting).count()==0
-        assert db.query(m.ExternalID).count()==(6+3+3)
+        assert db.query(m.ExternalID).count()==(6+3)
         second=sync.apply(db,locs,units,issues)
         assert second.get("locationsCreated",0)==0
         assert db.query(m.Location).count()==6
-        assert db.query(m.SectionDefinition).count()==2
+        assert db.query(m.SectionDefinition).count()==3
         # JCF-EMP generates its OWN UUIDv4 keys; PMS IDs are external references only.
         from uuid import UUID
         for model in (m.Location,m.SectionDefinition,m.LocationSection,m.LocationParent):
@@ -69,8 +68,8 @@ def test_governed_pms_import_writes_crosswalk_without_personnel(app):
                 assert record.id.version == 4
         for row in db.query(m.ExternalID).all():
             assert row.canonical_id.version == 4
-        assert db.query(m.LocationSection).count()==3
-        assert db.query(m.LocationParent).count()==5
+        assert db.query(m.LocationSection).count()==0
+        assert db.query(m.LocationParent).count()==0
 
 
 def test_exact_source_ids_stable_and_test_only_target(monkeypatch):
@@ -78,6 +77,7 @@ def test_exact_source_ids_stable_and_test_only_target(monkeypatch):
     code=sync.loc_code("Portfolios",p["id"])
     assert code.startswith("PMS-P-") and len(code)<=45
     assert sync.section_code(" CIB ")==sync.section_code("cib")
+    assert sync.section_code("CIB","Sections","101")!=sync.section_code("CIB","Sections","102")
     monkeypatch.setenv("APP_ENV","production")
     monkeypatch.setenv("DB_AG_ENABLED","true")
     monkeypatch.setenv("DB_HOST","ag-listener,1433")
@@ -131,7 +131,7 @@ def test_integer_pms_oid_does_not_become_destination_primary_key(app):
     src["Areas"][0]["parents"]["Portfolio"]="12345"
     src["Branches"][0]["parents"]["PortfolioName"]="12345"
     locs,units,issues=sync.plan(src)
-    assert not issues
+    assert any("SOURCE_HIERARCHY_UNTRUSTED" in x for x in issues)
     with Session(app.state.engine) as db:
         sync.apply(db,locs,units,issues)
         cross=db.query(m.ExternalID).filter(
@@ -158,13 +158,43 @@ def test_import_first_without_any_location_section_mapping(app):
     with Session(app.state.engine) as db:
         result=sync.apply(db,locations,sections,issues)
         assert result["locationsCreated"]==len(locations)
-        assert result["definitionsCreated"]==2
+        assert result["definitionsCreated"]==3
         assert result.get("sectionsAssigned",0)==0
         assert db.query(m.Location).count()==len(locations)
         assert db.query(m.LocationSection).count()==0
-        assert db.query(m.SectionDefinition).count()==2
+        assert db.query(m.SectionDefinition).count()==3
         assert db.query(m.ExternalID).filter(m.ExternalID.source==sync.SOURCE).count()==len(locations)+len(sections)
         repeat=sync.apply(db,locations,sections,issues)
         assert repeat.get("locationsCreated",0)==0
         assert repeat.get("definitionsCreated",0)==0
         assert db.query(m.Location).count()==len(locations)
+
+
+def test_import_correlation_is_short_and_deterministic_and_sql_audit_compatible(app):
+    long_key="parent:Branches:"+str(uuid4())+":"+str(uuid4())+"-additional-source-reference"
+    cid=sync.import_correlation(long_key)
+    assert len(cid)<=80 and cid==sync.import_correlation(long_key)
+    assert cid!=sync.import_correlation(long_key+"x")
+    with Session(app.state.engine) as db:
+        entity_id=sync.change(db,"LOCATION_CREATE",{
+            "code":"PMS-CORR-TEST","name":"Audit correlation test",
+            "locationType":"BRANCH","validFrom":"2020-01-01"
+        }, long_key)
+        assert entity_id
+        auditevents=db.query(m.AuditEvent).all()
+        assert auditevents
+        assert all(len(row.correlation_id)<=80 for row in auditevents)
+        assert db.query(m.Location).count()==1
+
+
+def test_distinct_same_name_section_rows_preserve_uuid_crosswalks(app):
+    src=example_source()
+    locs,sections,issues=sync.plan(src)
+    with Session(app.state.engine) as db:
+        sync.apply(db,locs,sections,issues)
+        same=[x for x in sections if x["name"]=="CIB"]
+        external=[db.query(m.ExternalID).filter(
+            m.ExternalID.source==sync.SOURCE,
+            m.ExternalID.entity_type==x["sourceTable"],
+            m.ExternalID.source_id==x["id"]).one() for x in same]
+        assert len({x.canonical_id for x in external})==2
