@@ -2,7 +2,7 @@
 'use strict';
 const $=s=>document.querySelector(s); let token=null, profile=null, config=null, current='overview';
 const views={overview:['Registry Overview','Explore verified Locations, Sections, Buildings and reporting links'],
- locations:['Location Directory','Select a Location to view assigned Sections/Units, buildings and relationships'],
+ locations:['Location Hierarchy','Explore parent–child formations; select a Location to view Sections/Units, Buildings and reporting lines'],
  sections:['Sections / Units','Standard definitions, with their current Location assignments'],
  mappings:['Location–Section Matrix','View where each Section/Unit is actually assigned'],
  reporting:['Reporting Lines','View local, functional and operational reporting links'],
@@ -161,7 +161,14 @@ function sampleSnapshot(){
    sourceName:a.sectionId?a.name+' — '+a.locationName:a.name,
    authorityOrgNodeId:locByCode[t].locationId,authorityName:locByCode[t].name,type,scope:''};
  });
- return {locations,sections,mappings,buildings,occupancies,reporting,unavailable:[],preview:true};
+ const parentTokens={SO:'HQ',A1:'SO',A2:'SO',TECH:'HQ',SAC:'A1',SAS:'A1',J:'A2',
+  STATION:'SAC',CIBHQ:'SO',NIBHQ:'SO'};
+ const hierarchy=locations.map(loc=>{
+  const token=loc.code.slice(5);
+  return {...loc,parentLocationId:parentTokens[token]?locByCode[parentTokens[token]].locationId:null,
+   selectable:true};
+ });
+ return {locations,hierarchy,sections,mappings,buildings,occupancies,reporting,unavailable:[],preview:true};
 }
 async function loadPaged(path){
  let items=[],cursor=null;
@@ -178,6 +185,7 @@ async function loadPaged(path){
 async function liveSnapshot(){
  const requested=[
   ['locations','/api/v1/registry/locations'],
+  ['hierarchy','/api/v1/registry/location-hierarchy'],
   ['sections','/api/v1/registry/section-definitions'],
   ['mappings','/api/v1/registry/location-sections'],
   ['buildings','/api/v1/facilities/buildings'],
@@ -266,30 +274,105 @@ function overviewView(pane,d){
  paths.forEach(x=>note.append(ui('code','endpoint',x)));pane.append(note);
 }
 function locationView(pane,d){
- sectionTitle(pane,'Location Directory','Select a formation to inspect Sections/Units, facilities and authorities.');
- let selected=d.locations[0]?.locationId||'',query='',type='';
- const {holder}=searchField(pane,'Search Location name or code',v=>{query=v.toLowerCase();draw()});
- selectFilter(holder,'Types',[...new Set(d.locations.map(x=>x.type))].sort(),v=>{type=v;draw()});
+ sectionTitle(pane,'Organizational Hierarchy','Expand formations to view their subordinate Locations. Select any Location to view its assigned Sections/Units, Buildings and reporting lines.');
+ const hierarchy=d.hierarchy||[];
+ const hasHierarchy=hierarchy.length>0;
+ const nodes=hasHierarchy?hierarchy:d.locations.map(x=>({...x,parentLocationId:null}));
+ const byId=new Map(nodes.map(n=>[n.locationId,n]));
+ const children=new Map(nodes.map(n=>[n.locationId,[]]));
+ const roots=[];
+ for(const node of nodes){
+  if(node.parentLocationId!==null && children.has(node.parentLocationId) && node.parentLocationId!==node.locationId)
+   children.get(node.parentLocationId).push(node);
+  else roots.push(node);
+ }
+ const rank={HQ:0,PORTFOLIO:1,AREA:2,BRANCH:3,DIVISION:4,STATION:5,EXTERNAL_ATTACHMENT:6};
+ const order=(a,b)=>(rank[a.type]??50)-(rank[b.type]??50)||a.name.localeCompare(b.name);
+ roots.sort(order);children.forEach(list=>list.sort(order));
+ let selected=roots[0]?.locationId||'',query='',type='';
+ let viewMode=hasHierarchy?'tree':'list';
+ const expanded=new Set(nodes.length<=100?nodes.filter(x=>(children.get(x.locationId)||[]).length)
+  .map(x=>x.locationId):roots.map(x=>x.locationId));
+ const {holder}=searchField(pane,'Search Location name or code',v=>{query=v.trim().toLowerCase();draw()});
+ selectFilter(holder,'Types',[...new Set(nodes.map(x=>x.type))].sort(),v=>{type=v;draw()});
+ const viewActions=ui('div','view-mode-controls');
+ const treeButton=button('Tree view',()=>{viewMode='tree';draw()});
+ const listButton=button('Flat list',()=>{viewMode='list';draw()});
+ treeButton.disabled=!hasHierarchy;
+ if(!hasHierarchy)treeButton.title='Hierarchy records unavailable for this account';
+ const expandButton=button('Expand all',()=>{nodes.forEach(x=>expanded.add(x.locationId));draw()});
+ const collapseButton=button('Collapse all',()=>{expanded.clear();draw()});
+ viewActions.append(treeButton,listButton,expandButton,collapseButton);pane.append(viewActions);
  const layout=ui('div','directory-split'),list=ui('div','directory-list'),detail=ui('div','directory-detail');
  layout.append(list,detail);pane.append(layout);
+ function matches(node){
+  return (!type||node.type===type)&&(!query||(node.name+' '+node.code).toLowerCase().includes(query));
+ }
+ function visibleBranch(node,seen=new Set()){
+  if(seen.has(node.locationId))return false;
+  const next=new Set(seen);next.add(node.locationId);
+  return matches(node)||(children.get(node.locationId)||[]).some(child=>visibleBranch(child,next));
+ }
  function draw(){
+  treeButton.classList.toggle('selected',viewMode==='tree');
+  listButton.classList.toggle('selected',viewMode==='list');
+  expandButton.hidden=viewMode!=='tree';collapseButton.hidden=viewMode!=='tree';
   list.replaceChildren();
-  const filtered=d.locations.filter(l=>(!type||l.type===type)&&
-   (!query||(l.name+' '+l.code).toLowerCase().includes(query)));
-  if(!filtered.length){selected='';empty(list,'No Locations match the search.')}
+  const candidates=nodes.filter(matches);
+  if(!candidates.length){selected='';empty(list,'No Locations match this search or type filter.')}
   else{
-   if(!filtered.some(x=>x.locationId===selected))selected=filtered[0].locationId;
-   for(const loc of filtered){
-    const b=ui('button','directory-row'+(loc.locationId===selected?' selected':''));b.type='button';
-    b.append(ui('strong','',loc.name));
-    b.append(ui('small','',loc.code+'  ·  '+loc.type));
-    b.onclick=()=>{selected=loc.locationId;draw()};list.append(b);
+   if(!candidates.some(x=>x.locationId===selected))selected=candidates[0].locationId;
+   if(viewMode==='tree'){
+    const rootList=ui('ul','hierarchy-tree');rootList.setAttribute('aria-label','Location hierarchy');
+    let rendered=new Set();
+    function branch(node,depth){
+     if(rendered.has(node.locationId))return null;rendered.add(node.locationId);
+     const li=ui('li','hierarchy-item'),row=ui('div','hierarchy-row');
+     const kids=(children.get(node.locationId)||[]).filter(x=>visibleBranch(x));
+     const isOpen=expanded.has(node.locationId)||!!query||!!type;
+     if(kids.length){
+      const toggle=button(isOpen?'▾':'▸',()=>{if(expanded.has(node.locationId))expanded.delete(node.locationId);else expanded.add(node.locationId);draw()});
+      toggle.className='hierarchy-toggle';toggle.setAttribute('aria-expanded',String(isOpen));
+      toggle.setAttribute('aria-label',(isOpen?'Collapse ':'Expand ')+node.name);
+      row.append(toggle);
+     }else row.append(ui('span','hierarchy-toggle-spacer',''));
+     const pick=button('',()=>{selected=node.locationId;draw()});
+     pick.className='hierarchy-pick'+(selected===node.locationId?' selected':'');
+     pick.append(ui('strong','',node.name),ui('small','',node.code+' · '+node.type));
+     row.append(pick);li.append(row);
+     if(kids.length&&isOpen&&depth<25){
+      const sub=ui('ul','hierarchy-children');for(const child of kids){const next=branch(child,depth+1);if(next)sub.append(next)}
+      li.append(sub);
+     }
+     return li;
+    }
+    for(const root of roots.filter(visibleBranch)){const item=branch(root,0);if(item)rootList.append(item)}
+    // Visible orphan/cycle data must never disappear from the directory.
+    for(const node of candidates)if(!rendered.has(node.locationId)){
+      const item=branch(node,0);if(item)rootList.append(item);
+    }
+    list.append(rootList);
+   }else{
+    for(const loc of candidates.sort(order)){
+     const b=ui('button','directory-row'+(loc.locationId===selected?' selected':''));b.type='button';
+     b.append(ui('strong','',loc.name),ui('small','',loc.code+' · '+loc.type));
+     b.onclick=()=>{selected=loc.locationId;draw()};list.append(b);
+    }
    }
   }
-  detail.replaceChildren();const loc=d.locations.find(x=>x.locationId===selected);if(!loc){empty(detail,'Select a Location to see details.');return}
+  detail.replaceChildren();
+  const loc=byId.get(selected);
+  if(!loc){empty(detail,'Select a Location to view details.');return}
   const title=ui('div','detail-heading');
-  title.append(ui('span','eyebrow',loc.type+' · '+loc.code));
-  title.append(ui('h2','',loc.name));detail.append(title);
+  title.append(ui('span','eyebrow',loc.type+' · '+loc.code),ui('h2','',loc.name));
+  detail.append(title);
+  if(hasHierarchy){
+   const path=[loc.name],seen=new Set([loc.locationId]);let parent=byId.get(loc.parentLocationId);
+   while(parent&&!seen.has(parent.locationId)){
+    path.unshift(parent.name);seen.add(parent.locationId);parent=byId.get(parent.parentLocationId);
+   }
+   detail.append(ui('p','location-breadcrumb',path.join(' / ')));
+  }
   const sections=d.mappings.filter(s=>s.locationId===loc.locationId);
   sectionTitle(detail,'Assigned Sections / Units',sections.length+' location-specific instances');
   if(sections.length){const tags=ui('div','pill-list');sections.forEach(s=>tags.append(pill(s.name)));detail.append(tags)}
