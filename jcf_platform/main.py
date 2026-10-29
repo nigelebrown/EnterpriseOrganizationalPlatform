@@ -169,6 +169,31 @@ def create_app(database_url=None, *, engine=None):
         q=search.strip().casefold()
         return {'items':[{'sectionDefinitionId':str(d.id),'code':d.code,'name':names[d.id]}
                          for d in definitions if d.id in names and (not q or q in d.code.casefold() or q in names[d.id].casefold())][:limit]}
+    @app.get('/api/v1/registry/location-sections',tags=['Registry'])
+    def location_sections(asOf:date|None=None,locationId:UUID|None=None,search:str='',
+                          limit:int=Query(200,ge=1,le=200),cursor:int=Query(0,ge=0),
+                          claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
+        """Read-only, location-scoped section instances for onboarding and directory views.
+
+        Both identifiers are stable UUIDs; the consumer must use sectionId, not
+        sectionDefinitionId, when recording a member's placement.
+        """
+        at=asOf or date.today()
+        restricted='registry.restricted.read' in claims['_scopes']
+        locs=s.location_options(db,at,'',restricted)
+        if locationId is not None:locs=[l for l in locs if l['locationId']==str(locationId)]
+        items=[]
+        q=search.strip().casefold()
+        for loc in locs:
+            for sec in s.section_options(db,UUID(loc['locationId']),at,restricted):
+                row={**sec,'locationCode':loc['code'],'locationName':loc['name'],
+                     'locationType':loc['type']}
+                if not q or any(q in str(row[k]).casefold() for k in ('name','code','locationName','locationCode')):
+                    items.append(row)
+        items.sort(key=lambda x:(x['locationName'].casefold(),x['name'].casefold(),x['sectionId']))
+        return {'asOf':str(at),'items':items[cursor:cursor+limit],
+                'nextCursor':str(cursor+limit) if len(items)>cursor+limit else None}
+
     @app.get('/api/v1/registry/org-nodes',tags=['Registry'])
     def org_nodes(asOf:date|None=None,search:str='',limit:int=Query(200,ge=1,le=200),
                   claims=Depends(permission('registry.read')),db:Session=Depends(db_session)):
@@ -191,6 +216,36 @@ def create_app(database_url=None, *, engine=None):
         rows=db.scalars(select(m.Building).order_by(m.Building.code)).all()
         return {'items':[{'buildingId':str(b.id),'name':b.name,'code':b.code} for b in rows
                          if s.asof(b,at) and (not q or q in b.name.casefold() or q in b.code.casefold())][:limit]}
+    @app.get('/api/v1/facilities/building-occupancies',tags=['Facilities'])
+    def building_occupancies(asOf:date|None=None,buildingId:UUID|None=None,
+                             locationId:UUID|None=None,search:str='',
+                             limit:int=Query(200,ge=1,le=200),cursor:int=Query(0,ge=0),
+                             claims=Depends(permission('facilities.read')),
+                             registry_claims=Depends(permission('registry.read')),
+                             db:Session=Depends(db_session)):
+        """Active Building-to-Location occupancy directory; no personnel details."""
+        at=asOf or date.today();q=search.strip().casefold()
+        allowed={l['locationId']:l for l in s.location_options(
+            db,at,'','registry.restricted.read' in registry_claims['_scopes'])}
+        rows=[]
+        for link in db.scalars(select(m.LocationBuilding)).all():
+            if not s.asof(link,at):continue
+            if buildingId is not None and link.building_id!=buildingId:continue
+            if locationId is not None and link.location_id!=locationId:continue
+            loc=allowed.get(str(link.location_id));building=db.get(m.Building,link.building_id)
+            if loc is None or building is None or not s.asof(building,at):continue
+            row={'locationBuildingId':str(link.id),'locationId':str(link.location_id),
+                 'locationName':loc['name'],'locationCode':loc['code'],
+                 'buildingId':str(building.id),'buildingName':building.name,
+                 'buildingCode':building.code,'address':building.address,
+                 'parish':building.parish,'occupancyType':link.occupancy_type}
+            if not q or any(q in str(row[k]).casefold() for k in
+                            ('locationName','locationCode','buildingName','buildingCode','parish')):
+                rows.append(row)
+        rows.sort(key=lambda x:(x['buildingName'].casefold(),x['locationName'].casefold()))
+        return {'asOf':str(at),'items':rows[cursor:cursor+limit],
+                'nextCursor':str(cursor+limit) if len(rows)>cursor+limit else None}
+
     @app.get('/api/v1/facilities/location-building-links',tags=['Facilities'])
     def location_building_links(locationId:UUID|None=None,claims=Depends(permission('facilities.read')),
                                 db:Session=Depends(db_session)):
@@ -212,6 +267,33 @@ def create_app(database_url=None, *, engine=None):
         return {'items':[{'id':str(e.id),'kind':e.kind,'aggregateId':str(e.aggregate_id),'at':e.at.isoformat(),
                           'payload':e.payload} for e in events[:limit]],
                 'nextCursor':str(events[limit-1].sequence) if len(events)>limit else None}
+
+    @app.get('/api/v1/reporting/relationships',tags=['Reporting'])
+    def reporting_relationships(asOf:date|None=None,relationType:str|None=None,
+                                limit:int=Query(200,ge=1,le=200),cursor:int=Query(0,ge=0),
+                                claims=Depends(permission('reporting.read')),
+                                registry_claims=Depends(permission('registry.read')),
+                                db:Session=Depends(db_session)):
+        """Active typed reporting edges with visible, resolved names for directory display."""
+        at=asOf or date.today()
+        restricted='registry.restricted.read' in registry_claims['_scopes']
+        allowed={}
+        for loc in s.location_options(db,at,'',restricted):
+            allowed[loc['locationId']]=loc['name']
+            for sec in s.section_options(db,UUID(loc['locationId']),at,restricted):
+                allowed[sec['sectionId']]=sec['name']+' — '+loc['name']
+        rows=[]
+        for edge in db.scalars(select(m.ReportingEdge)).all():
+            if not s.asof(edge,at):continue
+            if relationType is not None and edge.relation_type!=relationType:continue
+            source=allowed.get(str(edge.source_id));authority=allowed.get(str(edge.authority_id))
+            if source is None or authority is None:continue
+            rows.append({'sourceOrgNodeId':str(edge.source_id),'sourceName':source,
+                         'authorityOrgNodeId':str(edge.authority_id),'authorityName':authority,
+                         'type':edge.relation_type,'scope':edge.scope})
+        rows.sort(key=lambda x:(x['sourceName'].casefold(),x['type'],x['authorityName'].casefold()))
+        return {'asOf':str(at),'items':rows[cursor:cursor+limit],
+                'nextCursor':str(cursor+limit) if len(rows)>cursor+limit else None}
 
     @app.get('/api/v1/org-nodes/{node_id}/reporting',tags=['Reporting'])
     def reporting(node_id:UUID,asOf:date|None=None,claims=Depends(permission('reporting.read')),
