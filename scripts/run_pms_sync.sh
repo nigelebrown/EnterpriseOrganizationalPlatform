@@ -18,12 +18,15 @@ grep -qx INSTALL_MODE=local-express "$MODE" || fail "Cannot import into external
 grep -qx APP_ENV=development "$CONFIG_DIR/migration.env" || fail "Requires local development SQL"
 command -v docker >/dev/null || fail "Docker missing"
 if [[ "$ACTION" == setup || ! -f "$SECRETS" ]]; then
-  [[ -t 0 ]] || fail "Source credential setup requires an interactive root terminal"
-  read -r -p "PMS SQL hostname/IP [historical 172.17.75.123]: " host
-  if [[ -z "$host" ]];then host=172.17.75.123;fi
-  read -r -p "PMS SQL database [historical HRIS_Copy]: " database
+  if [[ ! -t 0 ]];then
+    fail "PMS secret config missing. Use python3 scripts/configure_pms_source.py --from-zip <archive> or --password-stdin instead."
+  fi
+  read -r -p "PMS SQL hostname/IP [AD Reset settings: 172.17.51.49]: " host
+  if [[ -z "$host" ]];then host=172.17.51.49;fi
+  read -r -p "PMS SQL database [AD Reset settings: HRIS_Copy]: " database
   if [[ -z "$database" ]];then database=HRIS_Copy;fi
-  read -r -p "PMS READ-ONLY SQL login: " login
+  read -r -p "PMS SQL login [AD Reset settings: HRISUser]: " login
+  if [[ -z "$login" ]];then login=HRISUser;fi
   read -r -s -p "PMS READ-ONLY SQL password: " password
   printf '\n'
   [[ -n "$login" && -n "$password" ]] || fail "Read-only SQL login and password required"
