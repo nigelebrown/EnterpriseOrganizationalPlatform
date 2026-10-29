@@ -32,3 +32,13 @@ assert.equal(data.mappings.filter(x=>x.locationId===sac.locationId).length,3);
 assert(data.occupancies.every(x=>data.locations.some(l=>l.locationId===x.locationId)));
 assert(data.reporting.every(x=>x.sourceName && x.authorityName));
 console.log('JCF-EMP sample directory preview schema and relationships verified.');
+
+assert.equal(data.contacts.length,1);
+assert(js.includes('roots.filter(root=>visibleBranch(root))'), 'Tree callback must not receive Array.filter index as seen Set');
+assert(!js.includes('roots.filter(visibleBranch)'), 'Old broken hierarchy callback detected');
+assert(js.includes("function cleanLabel(value)"), 'Demo labels must have display-only cleanup');
+assert(js.includes("function contactsView(pane,d)"), 'Contact Directory view must exist');
+assert(js.includes("$('#local-login-open').onclick"), 'Local test login control must remain available');
+assert(js.includes("$('#login').onclick=signIn"), 'Microsoft Entra login control must remain available');
+const html=readFileSync('jcf_platform/admin.html','utf8');
+assert(html.includes('id="local-login-open"') && html.includes('id="login"'), 'Two independent login controls are required');
