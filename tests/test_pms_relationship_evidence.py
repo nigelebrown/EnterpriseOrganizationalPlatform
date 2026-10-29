@@ -47,7 +47,7 @@ def test_reconciliation_distinguishes_conflicting_column_and_link_table():
     assert result["unresolvedExternalRefs"]==0
     assert any(x["evidence"]=="LINK_TABLE_ONLY" and x["parentName"]=="Other HQ"
                for x in result["disagreementExamples"])
-    assert "not" in result["note"].lower()
+    assert "no new parent" in result["note"].lower()
 
 
 def test_source_evidence_reports_orphans_without_autolinking():
