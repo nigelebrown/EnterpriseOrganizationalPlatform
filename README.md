@@ -73,6 +73,12 @@ are `TEST-JCF-*`, and formation names are prefixed `[TEST]`. Organizational
 hierarchies and associations are **illustrative, not an approved JCF master list**.
 No real officers or actual building addresses are inserted.
 
+The directory UI hides literal `[TEST]` and `DEMO-` prefixes **only
+when rendering labels**; underlying IDs and stored values are unchanged.
+A visible development-data notice distinguishes demos from the approved JCF
+registry. Recorded Building addresses and Contact Directory entries are shown
+in their respective views; unknown values are not fabricated.
+
 The seed uses governed change requests with **distinct synthetic test identities**
 (not real human approvals), never overwrites existing samples, and rejects
 production/Always On AG connections. Existing non-demo reference registers
@@ -91,6 +97,8 @@ bash scripts/doctor.sh --repair  # completes missing setup steps and verifies DB
 
 The doctor refuses overlapping installations and preserves existing data and passwords.
 See [installation recovery](docs/INSTALLATION.md).
+
+See [scope alignment and outstanding gaps](docs/SCOPE_ALIGNMENT_GAP_AUDIT_2026-10-29.md) for the Location, Building, Contact, HRIS, and AD integration delivery matrix.
 
 ## SQL 2019 development vs AG
 
@@ -130,6 +138,43 @@ approve their own submitted change request.
 This weak test password is explicitly for a controlled, isolated test
 system. Replace the self-signed test certificate and configure real Entra ID
 before using actual JCF organizational or personnel records.
+
+## Entra ID and local test login together
+
+Both sign-in choices now coexist in the same GUI. `Local test login` remains
+available only in the isolated SQL Server Express development mode and does
+not depend on Entra configuration. `Microsoft Entra ID` appears when the
+registered client is configured.
+
+The current JCF-EMP Entra app has client ID
+`9eb6b06d-0975-4991-bfff-6a8937d68fbd` in tenant
+`1ea2e2cf-0bfb-42f2-96a9-52a3a96317e1`. The current browser application
+requires:
+
+- **Authentication → Add platform → Single-page application**: register the
+  *exact* trusted HTTPS redirect URI ending in `/admin`, in addition to
+  any existing Web redirect URI.
+- **Expose an API**: Application ID URI
+  `api://9eb6b06d-0975-4991-bfff-6a8937d68fbd` with delegated scopes
+  `registry.read`, `facilities.read`, `reporting.read`,
+  `contacts.read`. Add appropriate API permissions and grant admin consent.
+- **Trusted HTTPS certificate**: the self-signed test certificate can prevent
+  browser PKCE from running in a secure context. A JCF-approved FQDN and
+  trusted PKI certificate are recommended before testing Entra sign-in.
+
+After completing the Entra application registration, run:
+
+```bash
+sudo bash scripts/configure_entra.sh \
+  --redirect-uri https://YOUR-APPROVED-JCF-DNS/admin
+```
+
+This writes OIDC endpoints and API scope requests into the existing
+root-only runtime configuration and invokes the repeat-safe installer.
+**It does not modify `ADMIN_LOCAL_TEST_*` settings or the local administrator.**
+Entra application credentials/secrets are not needed for the SPA public
+client flow. The app registration itself must be configured in Entra by
+an authorized administrator.
 
 ## Location hierarchy and organizational directory views
 
