@@ -18,6 +18,13 @@ TEST_ISSUER = "jcf-emp-isolated-express-test"
 TEST_AUDIENCE = "jcf-emp-local-dev-api"
 # The demo identity can exercise read/write and inspect the approvals queue,
 # but four-eyes checks still forbid approving its own submitted requests.
+# Separate reviewer identity allows testing the existing four-eyes workflow.
+TEST_REVIEWER_SCOPES = (
+    "registry.read registry.approve registry.apply "
+    "facilities.read facilities.approve facilities.apply "
+    "reporting.read reporting.approve reporting.apply "
+    "contacts.read contacts.approve contacts.apply"
+)
 TEST_SCOPES = (
     "registry.read registry.write registry.approve registry.apply "
     "reporting.read reporting.write reporting.approve reporting.apply "
@@ -104,26 +111,33 @@ def login(username: str, password: str, cfg: dict, source: str) -> dict:
         raise HTTPException(429, "Too many test login attempts; retry later")
     stored_user = os.environ["ADMIN_LOCAL_TEST_USERNAME"]
     stored_hash = os.environ["ADMIN_LOCAL_TEST_PASSWORD_HASH"]
-    if not hmac.compare_digest(username, stored_user) or not password_matches(password, stored_hash):
+    reviewer_user = os.getenv("ADMIN_LOCAL_TEST_REVIEWER_USERNAME","")
+    reviewer_hash = os.getenv("ADMIN_LOCAL_TEST_REVIEWER_PASSWORD_HASH","")
+    is_admin = hmac.compare_digest(username, stored_user) and password_matches(password, stored_hash)
+    is_reviewer = (bool(reviewer_user and reviewer_hash)
+                   and hmac.compare_digest(username, reviewer_user)
+                   and password_matches(password, reviewer_hash))
+    if not (is_admin or is_reviewer):
         raise HTTPException(401, "Incorrect test credentials")
+    granted_scopes = TEST_SCOPES if is_admin else TEST_REVIEWER_SCOPES
     _clear_failures(client)
     now = datetime.now(timezone.utc)
     claims = {
-        "sub": f"local-test:{stored_user}",
-        "preferred_username": stored_user,
-        "name": "Development Test Administrator",
+        "sub": f"local-test:{username}",
+        "preferred_username": username,
+        "name": "Development Test Administrator" if is_admin else "Development Test Reviewer",
         "iss": TEST_ISSUER,
         "aud": TEST_AUDIENCE,
         "iat": now,
         "nbf": now,
         "exp": now + timedelta(hours=1),
-        "scope": TEST_SCOPES,
+        "scope": granted_scopes,
         "testOnly": True,
     }
     access = jwt.encode(claims, bytes.fromhex(os.environ["ADMIN_LOCAL_TEST_SIGNING_KEY"]),
                         algorithm="HS256")
     return {"access_token": access, "token_type": "Bearer", "expires_in": 3600,
-            "scope": TEST_SCOPES}
+            "scope": granted_scopes}
 
 
 def decode_test_token(token: str, cfg: dict) -> dict:
