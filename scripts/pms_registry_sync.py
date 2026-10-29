@@ -331,7 +331,7 @@ def verify(db):
 
 def main():
     p=argparse.ArgumentParser(description="PMS/HRIS reference-table sync to TEST registry (never personnel)")
-    p.add_argument("action",choices=["inspect","preview","apply","verify"])
+    p.add_argument("action",choices=["inspect","preview","relationships","apply","verify"])
     p.add_argument("--confirm-test-import",action="store_true")
     p.add_argument("--include-pdf",action="store_true",
                    help="Include source-labelled scanned directory address/phone candidates in TEST only")
@@ -353,7 +353,17 @@ def main():
             with origin.connect() as source:
                 # SQL Server read-only transaction on the source: SELECT only.
                 entries,warnings=extract(source)
+                relationship_evidence=None
+                if args.action in ("relationships","preview","inspect"):
+                    # Source-only: reads eight XAF links and current lookup FKs.
+                    # Does NOT copy any HRIS relationships into JCF-EMP.
+                    from scripts.pms_relationship_evidence import inspect_relationships
+                    relationship_evidence=inspect_relationships(source,entries)
         finally: origin.dispose()
+        if args.action=="relationships":
+            print(json.dumps(relationship_evidence,indent=2))
+            print("READ ONLY: No PMS or JCF-EMP rows changed.")
+            return
         locations,sections,issues=plan(entries)
         report={"sourceTables":{k:len(v) for k,v in entries.items()},
                 "locations":len(locations),"sectionUnitRows":len(sections),
@@ -363,6 +373,8 @@ def main():
                 "unresolvedCount":len(issues)+len(warnings),
                 "importPolicy":"FLAT_SOURCE_REFERENCES_ONLY; manual hierarchy, section placement and deduplication",
                 "unresolvedSample":(warnings+issues)[:30]}
+        if relationship_evidence is not None:
+            report["hrisRelationshipEvidence"]=relationship_evidence
         if args.include_pdf:
             from scripts import pms_pdf_directory
             matches,unmatched=pms_pdf_directory.match_candidates(locations)
