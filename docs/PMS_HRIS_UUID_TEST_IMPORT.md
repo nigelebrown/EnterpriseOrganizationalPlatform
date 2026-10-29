@@ -55,10 +55,36 @@ git pull --ff-only origin feat/initial-modular-platform
 bash install.sh
 ```
 
-The confirmed AD Reset `Api/appsettings.json` source defaults are **SQL
-server 172.17.51.49,1433**, **database HRIS_Copy**, **user HRISUser**. The
-older `172.17.75.123` value was from an unverified historical reference.
+The latest source connection explicitly supplied for PMS/HRIS uses **SQL
+server 172.17.51.49:1433**, **database HRIS_Duplicate**, **user HRISUser**,
+`Encrypt=True`, `TrustServerCertificate=True`. This supersedes the older
+`HRIS_Copy` appsettings value for this test connection.
+The older server `172.17.75.123` was an unverified historical reference.
 Do **not** commit the password to Git or bundle it into a Docker image.
+
+If you already configured PMS source credentials on the CentOS server, do
+**not** re-enter the password. Preserve the existing root-only secret and
+update only the source database and TLS settings:
+
+```bash
+cd /root/EnterpriseOrganizationalPlatform
+git pull --ff-only origin feat/initial-modular-platform
+sudo python3 scripts/configure_pms_source.py --reuse-existing
+sudo bash scripts/diagnose_pms_network.sh
+sudo bash scripts/run_pms_sync.sh preview
+```
+
+The diagnostic checks whether both the **CentOS host** and the **isolated
+import container** can reach port 1433 on the HRIS SQL host; it never opens
+a SQL session, prints a password or changes routing. The source IP is in
+`172.17.0.0/16`, which may overlap a Docker bridge route: review the reported
+interfaces before attempting to readdress Docker or change firewall rules.
+The previously observed SQLAlchemy traceback alone does not prove which
+network, TLS or login step failed.
+
+`TrustServerCertificate=True` encrypts the ODBC session but does **not**
+validate the identity of the SQL Server. Limit it to the isolated test
+environment and replace it with a CA-trusted server certificate for production.
 
 For **no-prompt** setup, choose either of the following methods:
 
