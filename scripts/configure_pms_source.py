@@ -2,11 +2,12 @@
 """Bootstrap PMS/HRIS source settings WITHOUT committing SQL credentials to Git.
 
 The non-secret defaults are from the supplied AD Self-Service API settings:
-server 172.17.51.49, database HRIS_Copy, user HRISUser, port 1433.
+server 172.17.51.49, database HRIS_Duplicate, user HRISUser, port 1433.
 Read password from the original AD Reset archive/config or standard input and
 store it in root-only /etc/jcf-registry/pms-source.env for the existing importer.
 
 Examples:
+  sudo python3 scripts/configure_pms_source.py --reuse-existing
   sudo python3 scripts/configure_pms_source.py --from-zip /root/JcfAdReset-COMPLETE-2026-10-17.zip
   sudo python3 scripts/configure_pms_source.py --from-json /opt/JcfAdReset/Api/appsettings.json
   sudo python3 scripts/configure_pms_source.py --password-stdin <<'SECRET'
@@ -28,7 +29,7 @@ from zipfile import ZipFile, BadZipFile
 DEFAULT = {
     "Server": "172.17.51.49",
     "Port": 1433,
-    "Database": "HRIS_Copy",
+    "Database": "HRIS_Duplicate",
     "User": "HRISUser",
 }
 OUTPUT = Path("/etc/jcf-registry/pms-source.env")
@@ -46,6 +47,26 @@ def from_zip(path: Path) -> dict:
 
 def from_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")).get("Hris", {})
+
+
+def from_existing(path: Path) -> dict:
+    """Reuse a previously saved password; override nonsecret settings with
+    the user's explicitly supplied HRIS_Duplicate connection string.
+    No password is accepted or printed on the command line.
+    """
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("Existing protected PMS source config not found")
+    values = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line or line.lstrip().startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if separator:
+            values[key] = value
+    previous_password = values.get("PMS_SOURCE_PASSWORD", "")
+    if not previous_password:
+        raise ValueError("Existing PMS source password not found")
+    return {**DEFAULT, "Password": previous_password}
 
 
 def validate(value: str, label: str) -> str:
@@ -105,6 +126,8 @@ def main() -> None:
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument("--from-zip", type=Path, help="Original AD Reset ZIP archive containing Api/appsettings.json")
     src.add_argument("--from-json", type=Path, help="Existing AD Reset Api/appsettings.json file")
+    src.add_argument("--reuse-existing", action="store_true",
+                     help="Reuse existing root-only SQL password; apply HRIS_Duplicate connection settings")
     src.add_argument("--password-stdin", action="store_true",
                      help="Use the known AD Reset host/database/user defaults; receive password from stdin")
     parser.add_argument("--trust-source-cert", action="store_true",
@@ -113,7 +136,9 @@ def main() -> None:
     args = parser.parse_args()
     if hasattr(os, "geteuid") and os.geteuid() != 0:
         parser.error("Run using sudo/root to store credentials in a root-only file")
-    if args.password_stdin:
+    if args.reuse_existing:
+        source = from_existing(args.output)
+    elif args.password_stdin:
         if sys.stdin.isatty():
             parser.error("Provide the password through a pipe or heredoc, not an interactive terminal")
         password = sys.stdin.read().strip("\r\n")
@@ -123,11 +148,13 @@ def main() -> None:
             source = from_zip(args.from_zip) if args.from_zip else from_json(args.from_json)
         except (OSError, KeyError, ValueError, BadZipFile, json.JSONDecodeError) as err:
             parser.error(f"Unable to read AD Reset application settings: {err}")
-    values = prepare(source, args.trust_source_cert)
+    values = prepare(source, args.trust_source_cert or args.reuse_existing)
     write_secret(args.output, values)
-    print("PMS/HRIS source settings saved, mode: read-only importer")
+    print("PMS/HRIS source settings saved, mode: SELECT-only importer")
     print(f"Server: {source.get('Server')}, database: {source.get('Database')}, user: {source.get('User')}")
     print(f"Protected file: {args.output} (owner only; password not displayed)")
+    if args.reuse_existing:
+        print("SQL TLS: Encrypt=True, TrustServerCertificate=True (development source only)")
     print("This config does not validate SQL connectivity or credentials until a preview is run.")
 
 
