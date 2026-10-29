@@ -101,6 +101,44 @@ See [installation recovery](docs/INSTALLATION.md).
 - Do not attempt Always On AG failover tests on Express; use Enterprise or Basic AG capable
   Standard infrastructure as licensed/approved.
 
+## Location hierarchy and organizational directory views
+
+The administration GUI at `/admin` now prioritizes **read-only, searchable
+directory views**: an overview, expandable parent–child Location Hierarchy
+(with Tree/Flat List modes), standard Section/Unit definitions,
+Location–Section mappings, Building-to-Location occupancy, and reporting
+relationships. Selecting a Location displays its assigned Section/Unit
+instances, Buildings and reporting authorities.
+
+Before OIDC is configured, **Preview sample** shows only fictional,
+in-browser `[TEST]` records for UI inspection. It is NOT a public read
+endpoint into the SQL Server database; all live lists remain protected by
+OIDC scopes and visibility filtering.
+
+Authorized consumers, including the future AD self-service application, can
+read the hierarchy and relationships through:
+
+```http
+GET /api/v1/registry/location-hierarchy?asOf=2026-10-29&limit=200&cursor=0
+GET /api/v1/registry/locations
+GET /api/v1/registry/locations/{locationId}/sections
+GET /api/v1/registry/location-sections
+GET /api/v1/facilities/building-occupancies
+GET /api/v1/reporting/relationships
+```
+
+`location-hierarchy` returns each visible active Location (including
+non-selectable administrative parents), its effective parent
+`parentLocationId` or `null`, and its `selectable` flag. Parent IDs of
+restricted Locations are masked from accounts lacking permission.
+It deliberately returns **flat parent-linked records**, so consumers can
+build their own trees without SQL access. The onboarding selection API
+continues to return *selectable* Locations only, preserving validation of
+Location + subordinate Section/Unit pairs.
+
+*The current hierarchy is illustrative; approved JCF master data must
+replace the test fixture before external ingestion.*
+
 ## Example onboarding API
 
 ```http
