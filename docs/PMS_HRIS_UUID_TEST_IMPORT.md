@@ -115,6 +115,44 @@ available but is not required. The SQL login must have SELECT-only permission
 or be explicitly reviewed by the DBA; merely supplying read-only query code
 does not revoke any preexisting write permissions.
 
+## Reconciling the source HRIS formation schema
+
+An initial PMS preview against `HRIS_Duplicate` reported **14 Locations, 4
+Section/Unit rows, 3 unique Section/Unit definitions and zero Location–Section
+assignments**. It found no expected `Portfolio` column in `Areas`, no
+`Division` in `Sections`, and none of the expected `Division`, `Station`
+or `Section` fields in `Units`. The tool must **not** invent those parent
+relationships. The original AD Reset integration reads `Stations` and
+`Sections` independently as lookup lists; that alone is not a hierarchical
+directory.
+
+The following **read-only** command now compares the two named HRIS databases
+on the same SQL host, using the already-protected password:
+
+```bash
+cd /root/EnterpriseOrganizationalPlatform
+git pull --ff-only origin feat/initial-modular-platform
+bash scripts/run_pms_sync.sh schema
+```
+
+It prints active record counts and actual column names for the seven
+allowlisted formation tables, available foreign-key constraints, and related
+table **names only** that might contain mappings. It also attempts to read
+`HRIS_Copy` on the same SQL host for comparison. If the SQL login cannot
+access that database, it reports a non-secret accessibility error and does
+not change the connection used by normal `preview`.
+
+**No new Docker build is necessary for importer-only changes.** The launcher
+mounts the checked-out `scripts/` directory into the isolated import
+container as read-only, using the already-installed application image and
+the existing protected source/migration environment files.
+
+The `apply` and `sync` actions now deliberately **stop before any writes**
+when no valid Location–Section assignments exist. A fully populated test
+directory cannot be produced from flat lookup tables without relationship
+information. The production architecture will require approved Location–
+Section mappings, not inference from officers' personal records.
+
 Inspect the source and preview the import **without writing to either DB**:
 
 ```bash
