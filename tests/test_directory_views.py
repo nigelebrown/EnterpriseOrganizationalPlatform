@@ -91,3 +91,59 @@ def test_directory_gui_contains_anonymous_synthetic_preview_only(client):
     assert "function sampleSnapshot()" in js.text
     assert "Preview sample" in html.text
     assert "readDirectory()" in js.text
+
+
+def test_hierarchy_returns_correct_seeded_parent_chains(client, app):
+    seed_data(app)
+    response = client.get("/api/v1/registry/location-hierarchy")
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert len(items) == 12
+    by_code = {item["code"]: item for item in items}
+    assert by_code["DEMO-HQ"]["parentLocationId"] is None
+    assert by_code["DEMO-EXT"]["parentLocationId"] is None
+    assert by_code["DEMO-SO"]["parentLocationId"] == by_code["DEMO-HQ"]["locationId"]
+    assert by_code["DEMO-A1"]["parentLocationId"] == by_code["DEMO-SO"]["locationId"]
+    assert by_code["DEMO-SAC"]["parentLocationId"] == by_code["DEMO-A1"]["locationId"]
+    assert by_code["DEMO-STATION"]["parentLocationId"] == by_code["DEMO-SAC"]["locationId"]
+    first = client.get("/api/v1/registry/location-hierarchy", params={"limit": 4}).json()
+    assert len(first["items"]) == 4 and first["nextCursor"] == "4"
+    second = client.get("/api/v1/registry/location-hierarchy",
+                        params={"limit": 4, "cursor": 4}).json()
+    assert {x["locationId"] for x in first["items"]}.isdisjoint(
+        {x["locationId"] for x in second["items"]})
+
+
+def test_hierarchy_filters_restricted_parents_and_preserves_visible_children(client, app):
+    seed_data(app)
+    with Session(app.state.engine) as db:
+        area = db.scalar(select(m.Location).where(m.Location.code == "DEMO-A1"))
+        area.visibility = "RESTRICTED"
+        db.commit()
+    items = client.get("/api/v1/registry/location-hierarchy").json()["items"]
+    by_code = {item["code"]: item for item in items}
+    assert "DEMO-A1" not in by_code
+    # Do not reveal restricted parent identifiers, but do not suppress visible children.
+    assert by_code["DEMO-SAC"]["parentLocationId"] is None
+    assert by_code["DEMO-SAS"]["parentLocationId"] is None
+    app.state.claims["_scopes"].add("registry.restricted.read")
+    privileged = {x["code"]: x for x in client.get(
+        "/api/v1/registry/location-hierarchy").json()["items"]}
+    assert privileged["DEMO-SAC"]["parentLocationId"] == privileged["DEMO-A1"]["locationId"]
+
+
+def test_hierarchy_includes_nonselectable_administrative_formations(client, app):
+    seed_data(app)
+    with Session(app.state.engine) as db:
+        hq = db.scalar(select(m.Location).where(m.Location.code == "DEMO-HQ"))
+        hq.selectable = False
+        db.commit()
+    hierarchy = client.get("/api/v1/registry/location-hierarchy").json()["items"]
+    assert any(x["code"] == "DEMO-HQ" and x["selectable"] is False for x in hierarchy)
+    assert all(x["code"] != "DEMO-HQ"
+               for x in client.get("/api/v1/registry/locations").json()["items"])
+
+
+def test_hierarchy_requires_registry_read_scope(client, app):
+    app.state.claims["_scopes"].discard("registry.read")
+    assert client.get("/api/v1/registry/location-hierarchy").status_code == 403
