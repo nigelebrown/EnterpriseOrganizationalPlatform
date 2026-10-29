@@ -314,6 +314,23 @@ def apply(db,locs,sections,issues):
     return dict(counters)
 
 
+def verify_import_plan(locations, sections):
+    """Fail closed when HRIS is a flat lookup set without Location–Section links.
+
+    A Section/Unit definition alone is insufficient for the required
+    Location + subordinate Section/Unit onboarding workflow.
+    """
+    if not locations:
+        raise RuntimeError("PMS sync blocked: no Location records were extracted")
+    mappings = [s for s in sections if s["targetLocationCode"]]
+    if not mappings:
+        raise RuntimeError(
+            "PMS sync blocked: no Section/Unit has a verified parent Location. "
+            "Run 'bash scripts/run_pms_sync.sh schema' and reconcile the "
+            "source relationships before importing. No rows changed."
+        )
+
+
 def verify(db):
     rows=db.scalars(select(m.ExternalID).where(m.ExternalID.source==SOURCE)).all()
     result=Counter(row.entity_type for row in rows)
@@ -364,6 +381,7 @@ def main():
             return
         if not args.confirm_test_import:
             raise RuntimeError("Run preview first, then apply --confirm-test-import (TEST database only)")
+        verify_import_plan(locations,sections)
         with Session(destination) as db:
             applied=apply(db,locations,sections,issues)
             pdf_report=None
