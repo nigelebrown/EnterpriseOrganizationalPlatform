@@ -24,7 +24,8 @@ jobs:
           bash -n scripts/enable_test_admin.sh
           bash -n scripts/configure_entra.sh
           bash -n scripts/run_pms_sync.sh
-          python -m py_compile scripts/pms_registry_sync.py scripts/pms_pdf_directory.py
+          bash -n scripts/diagnose_pms_network.sh
+          python -m py_compile scripts/pms_registry_sync.py scripts/pms_pdf_directory.py scripts/configure_pms_source.py
       - name: Validate SQL Server 2019 DDL compilation
         run: python scripts/verify_sqlserver_ddl.py
       - name: Validate one-click installer syntax and dry-run
