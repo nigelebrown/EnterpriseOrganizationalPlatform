@@ -49,7 +49,9 @@ def test_imported_reference_records_are_reviewable_and_correctable(client,app,se
     after=client.get("/api/v1/registry/reconciliation").json()
     reviewed={x["id"]:x for x in after["items"]}
     assert reviewed[a]["issues"]==[]
-    assert reviewed[section]["issues"]==[]
+    # Location attachment fixes that warning, but the same-name duplicate
+    # remains flagged until the extra definition is reviewed and retired.
+    assert reviewed[section]["issues"]==["POTENTIAL_DUPLICATE_NAME"]
     assert reviewed[dup]["issues"]==["PARENT_NOT_ASSIGNED"]
     getid(service_client("LOCATION_PARENT_REASSIGN",{"childId":a,"parentId":other,
                                                       "effectiveFrom":"2026-08-01"}))
@@ -73,6 +75,8 @@ def test_imported_reference_records_are_reviewable_and_correctable(client,app,se
         "sectionDefinitionId":unused,"effectiveFrom":"2026-10-01"}))
     assert unused not in {x["sectionDefinitionId"] for x in client.get(
         "/api/v1/registry/section-definitions").json()["items"]}
+    reconciled=client.get("/api/v1/registry/reconciliation").json()["items"]
+    assert next(x for x in reconciled if x["id"]==section)["issues"]==[]
 
 
 def test_reconciliation_is_permission_scoped(client,app,service_client):
