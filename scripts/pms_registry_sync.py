@@ -83,7 +83,7 @@ def source_id(value):
     if value is None:
         return None
     key = str(value).strip()
-    if not key or len(key) > 180 or any(c in key for c in "\\r\\n"):
+    if not key or len(key) > 180 or any(ord(ch) < 32 for ch in key):
         raise ValueError("Invalid PMS lookup identifier")
     return key.lower()
 
