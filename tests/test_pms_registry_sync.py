@@ -77,3 +77,35 @@ def test_exact_source_ids_stable_and_test_only_target(monkeypatch):
     try:sync.check_target()
     except RuntimeError:pass
     else:assert False, "Must refuse any production/AG target"
+
+
+def test_scanned_directory_addresses_match_only_exact_formation_names():
+    from scripts import pms_pdf_directory as pdf
+    source=example_source()
+    locs,_,_=sync.plan(source)
+    matched,skipped=pdf.match_candidates(locs)
+    assert not matched  # No fictional test Location should receive a real address
+    assert len(skipped)==len(pdf.load_candidates())
+    assert pdf.normalize("St. Andrew Central Divisional Hq.") == pdf.normalize("ST ANDREW CENTRAL")
+
+
+def test_scanned_directory_import_uses_provenance_and_is_idempotent(app):
+    from scripts import pms_pdf_directory as pdf
+    src=example_source()
+    # Match the user-supplied PDF's high-confidence Portland HQ record.
+    p=src["Portfolios"][0]
+    src["Divisions"].append(row("Portland","Divisions",{"Branch":src["Branches"][0]["id"]}))
+    locs,units,issues=sync.plan(src)
+    with Session(app.state.engine) as db:
+        sync.apply(db,locs,units,issues)
+        first=pdf.attach_pdf_candidates(db,locs)
+        assert first["matched"]==1
+        assert first["created"]["buildings"]==1
+        assert first["created"]["locationBuildings"]==1
+        assert first["created"]["contacts"]==1
+        assert db.query(m.Building).count()==1
+        again=pdf.attach_pdf_candidates(db,locs)
+        assert again["created"]=={"buildings":0,"locationBuildings":0,"contacts":0}
+        assert db.query(m.Contact).count()==1
+        assert db.query(m.ExternalID).filter(
+            m.ExternalID.source==pdf.SOURCE_NAME).count()==1
