@@ -314,21 +314,26 @@ def apply(db,locs,sections,issues):
     return dict(counters)
 
 
-def verify_import_plan(locations, sections):
-    """Fail closed when HRIS is a flat lookup set without Location–Section links.
-
-    A Section/Unit definition alone is insufficient for the required
-    Location + subordinate Section/Unit onboarding workflow.
-    """
-    if not locations:
-        raise RuntimeError("PMS sync blocked: no Location records were extracted")
-    mappings = [s for s in sections if s["targetLocationCode"]]
-    if not mappings:
-        raise RuntimeError(
-            "PMS sync blocked: no Section/Unit has a verified parent Location. "
-            "Run 'bash scripts/run_pms_sync.sh schema' and reconcile the "
-            "source relationships before importing. No rows changed."
-        )
+def review_import_plan(locations, sections, issues):
+    """Report unresolved imported references without blocking this TEST import."""
+    if not locations and not sections:
+        raise RuntimeError("PMS source contains no usable reference data")
+    duplicates={}
+    for row in locations:
+        key=(row["kind"],normalized_name(row["name"]))
+        duplicates.setdefault(key,[]).append(row["id"])
+    for row in sections:
+        key=("SECTION_UNIT",normalized_name(row["name"]))
+        duplicates.setdefault(key,[]).append(row["id"])
+    return {
+        "status":"IMPORTED_FOR_RECONCILIATION_NOT_APPROVED",
+        "unassignedSectionUnits":sum(1 for s in sections if not s["targetLocationCode"]),
+        "locationsWithoutParent":sum(1 for loc in locations if
+                                      loc["kind"] not in ("PORTFOLIO","HQ") and not loc["parent"]),
+        "potentialDuplicateGroups":sum(len(ids)>1 for ids in duplicates.values()),
+        "unresolvedIssues":len(issues),
+        "nextStep":"Correct names, duplicates, parents and Section assignments in JCF-EMP.",
+    }
 
 
 def verify(db):
@@ -369,6 +374,7 @@ def main():
                 "locationSectionMappings":len({(s["targetLocationCode"],s["definitionCode"])
                                                for s in sections if s["targetLocationCode"]}),
                 "unresolvedCount":len(issues)+len(warnings),
+                "importPolicy":"Unverified test references, review in JCF-EMP",
                 "unresolvedSample":(warnings+issues)[:30]}
         if args.include_pdf:
             from scripts import pms_pdf_directory
@@ -381,7 +387,7 @@ def main():
             return
         if not args.confirm_test_import:
             raise RuntimeError("Run preview first, then apply --confirm-test-import (TEST database only)")
-        verify_import_plan(locations,sections)
+        review=review_import_plan(locations,sections,issues)
         with Session(destination) as db:
             applied=apply(db,locations,sections,issues)
             pdf_report=None
@@ -389,6 +395,7 @@ def main():
                 pdf_report=pms_pdf_directory.attach_pdf_candidates(db,locations)
             print(json.dumps({"planned":report,"applied":applied,
                               "scannedPdfImport":pdf_report,
+                              "reconciliation":review,
                               "verified":verify(db)},indent=2))
         print("PMS/HRIS source was never modified. JCF-EMP test import used distinct synthetic workflow identities.")
     finally: destination.dispose()
