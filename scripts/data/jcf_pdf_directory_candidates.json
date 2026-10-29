@@ -1,0 +1,169 @@
+{
+  "source": "User-supplied scanned JCF directory (five pages), upload 2026-10-29",
+  "sourceDateUnverified": true,
+  "note": "Candidate physical location information for isolated TEST ONLY. No claim these addresses, phones, area associations or parish designations are current or authorized. Match by exact normalized formation name; skip unmatched and ambiguous.",
+  "entries": [
+    {
+      "type": "AREA",
+      "locationName": "Area One",
+      "buildingName": "Area 1 Headquarters",
+      "address": "9 Sewell Avenue, Montego Bay",
+      "parish": "St. James",
+      "sourcePage": 2,
+      "phone": ""
+    },
+    {
+      "type": "AREA",
+      "locationName": "Area Two",
+      "buildingName": "Area 2 Headquarters",
+      "address": "13–26 Pompanoe Complex, Tower Isle",
+      "parish": "St. Mary",
+      "sourcePage": 3,
+      "phone": ""
+    },
+    {
+      "type": "AREA",
+      "locationName": "Area Three",
+      "buildingName": "Area 3 Headquarters",
+      "address": "8 Park Crescent, Mandeville",
+      "parish": "Manchester",
+      "sourcePage": 3,
+      "phone": ""
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St James",
+      "buildingName": "St. James Divisional Headquarters",
+      "address": "Alice Eldemire Drive, Montego Bay",
+      "parish": "St. James",
+      "sourcePage": 2,
+      "phone": ""
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "Portland",
+      "buildingName": "Portland Divisional Headquarters",
+      "address": "68 Harbour Street, Port Antonio",
+      "parish": "Portland",
+      "sourcePage": 3,
+      "phone": "993 2527"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Ann",
+      "buildingName": "St. Ann Divisional Headquarters",
+      "address": "8 Main Street, St. Ann's Bay",
+      "parish": "St. Ann",
+      "sourcePage": 3,
+      "phone": "972 2373"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "Manchester",
+      "buildingName": "Manchester Divisional Headquarters",
+      "address": "Park Crescent, Mandeville",
+      "parish": "Manchester",
+      "sourcePage": 4,
+      "phone": "962 6663"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "Clarendon",
+      "buildingName": "Clarendon Divisional Headquarters",
+      "address": "11 Brooks Avenue, May Pen",
+      "parish": "Clarendon",
+      "sourcePage": 4,
+      "phone": "986 2208"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Elizabeth",
+      "buildingName": "St. Elizabeth Divisional Headquarters",
+      "address": "82 High Street",
+      "parish": "St. Elizabeth",
+      "sourcePage": 4,
+      "phone": "965 2236"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "Kingston Eastern",
+      "buildingName": "Kingston Eastern Divisional Headquarters",
+      "address": "16 Lower Elleston Road, Kingston",
+      "parish": "Kingston",
+      "sourcePage": 4,
+      "phone": "759 1865"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Andrew Central",
+      "buildingName": "St. Andrew Central Divisional Headquarters",
+      "address": "142 Maxfield Avenue, Kingston 10",
+      "parish": "St. Andrew",
+      "sourcePage": 4,
+      "phone": "926 7129"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "Kingston Central",
+      "buildingName": "Kingston Central Divisional Headquarters",
+      "address": "48 East Queen Street, Kingston",
+      "parish": "Kingston",
+      "sourcePage": 4,
+      "phone": "922 4089"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "Kingston Western",
+      "buildingName": "Kingston Western Divisional Headquarters",
+      "address": "83 Spanish Town Road, Kingston",
+      "parish": "Kingston",
+      "sourcePage": 5,
+      "phone": "948 6624"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Andrew South",
+      "buildingName": "St. Andrew South Divisional Headquarters",
+      "address": "236 Marcus Garvey Drive, Kingston",
+      "parish": "St. Andrew",
+      "sourcePage": 5,
+      "phone": "923 7112"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Andrew North",
+      "buildingName": "St. Andrew North Divisional Headquarters",
+      "address": "2 Cassava Piece Road",
+      "parish": "St. Andrew",
+      "sourcePage": 5,
+      "phone": "924 2826"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Catherine North",
+      "buildingName": "St. Catherine North Divisional Headquarters",
+      "address": "3 Burke Road, Spanish Town",
+      "parish": "St. Catherine",
+      "sourcePage": 5,
+      "phone": "984 2305"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Catherine South",
+      "buildingName": "St. Catherine South Divisional Headquarters",
+      "address": "1 Braeton Parkway, Greater Portmore",
+      "parish": "St. Catherine",
+      "sourcePage": 5,
+      "phone": "948 8397"
+    },
+    {
+      "type": "DIVISION",
+      "locationName": "St Thomas",
+      "buildingName": "St. Thomas Divisional Headquarters",
+      "address": "7 South Street",
+      "parish": "St. Thomas",
+      "sourcePage": 5,
+      "phone": "982 2445"
+    }
+  ]
+}
